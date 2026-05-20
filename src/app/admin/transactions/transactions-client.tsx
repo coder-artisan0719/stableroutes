@@ -9,6 +9,7 @@ import {
   Check,
   Clock,
   Loader2,
+  Lock,
   MoreHorizontal,
   Plus,
   Undo2,
@@ -243,37 +244,48 @@ export function AdminTransactionsClient({
                       <TransactionStatusBadge status={t.status} />
                     </TableCell>
                     <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Set status</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          {(["PENDING", "COMPLETED", "REFUNDED"] as const)
-                            .filter((s) => s !== t.status)
-                            .map((s) => (
-                              <DropdownMenuItem
-                                key={s}
-                                onClick={() => setEditing({ tx: t, target: s })}
-                              >
-                                {s === "COMPLETED" && (
-                                  <Check className="h-4 w-4 text-success" />
-                                )}
-                                {s === "PENDING" && (
-                                  <Clock className="h-4 w-4 text-warning" />
-                                )}
-                                {s === "REFUNDED" && (
-                                  <Undo2 className="h-4 w-4 text-destructive" />
-                                )}
-                                Mark as {s.toLowerCase()}
-                              </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuContent>
-                        {/* Note: a SCHEDULED transaction can be advanced to PENDING/COMPLETED/REFUNDED via the menu above. */}
-                      </DropdownMenu>
+                      {t.status === "COMPLETED" ? (
+                        // A completed payment is final — no status changes.
+                        <span
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+                          title="Completed payments are final"
+                        >
+                          <Lock className="h-3 w-3" /> Final
+                        </span>
+                      ) : (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Set status</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {(["PENDING", "COMPLETED", "REFUNDED"] as const)
+                              .filter((s) => s !== t.status)
+                              .map((s) => (
+                                <DropdownMenuItem
+                                  key={s}
+                                  onClick={() =>
+                                    setEditing({ tx: t, target: s })
+                                  }
+                                >
+                                  {s === "COMPLETED" && (
+                                    <Check className="h-4 w-4 text-success" />
+                                  )}
+                                  {s === "PENDING" && (
+                                    <Clock className="h-4 w-4 text-warning" />
+                                  )}
+                                  {s === "REFUNDED" && (
+                                    <Undo2 className="h-4 w-4 text-destructive" />
+                                  )}
+                                  Mark as {s.toLowerCase()}
+                                </DropdownMenuItem>
+                              ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

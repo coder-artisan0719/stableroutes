@@ -10,10 +10,12 @@ import {
   Eye,
   Landmark,
   Receipt,
+  X,
 } from "lucide-react";
 import type { CustomerProfile, Transaction } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -31,79 +33,203 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Pagination } from "@/components/ui/pagination";
+import { PageSizeSelector } from "@/components/ui/page-size";
+import { DEFAULT_PAGE_SIZE, type PageSize } from "@/lib/page-size";
+import { useRouter } from "next/navigation";
 import { TransactionStatusBadge } from "@/components/status-badge";
 import { CircleUsdcLogo } from "@/components/partner-logos";
 import { formatDateTime, formatUSD, truncateMiddle } from "@/lib/utils";
 
 type Row = Transaction & { profile: CustomerProfile };
 
+type TxQuery = { from?: string; to?: string };
+
+function buildHref(query: TxQuery, page: number, pageSize: PageSize) {
+  const params = new URLSearchParams();
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+  if (page > 1) params.set("page", String(page));
+  if (pageSize !== DEFAULT_PAGE_SIZE) params.set("pageSize", String(pageSize));
+  const qs = params.toString();
+  return qs ? `/dashboard/transactions?${qs}` : "/dashboard/transactions";
+}
+
+function TransactionsToolbar({
+  query,
+  onChange,
+}: {
+  query: TxQuery;
+  onChange: (next: TxQuery) => void;
+}) {
+  const hasFilter = Boolean(query.from || query.to);
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-end gap-3 py-4">
+        <div className="space-y-1.5">
+          <label
+            htmlFor="tx-from"
+            className="block text-xs font-medium text-muted-foreground"
+          >
+            From
+          </label>
+          <Input
+            id="tx-from"
+            type="date"
+            value={query.from ?? ""}
+            max={query.to || undefined}
+            onChange={(e) =>
+              onChange({ from: e.target.value || undefined, to: query.to })
+            }
+            className="h-9 w-[160px]"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label
+            htmlFor="tx-to"
+            className="block text-xs font-medium text-muted-foreground"
+          >
+            To
+          </label>
+          <Input
+            id="tx-to"
+            type="date"
+            value={query.to ?? ""}
+            min={query.from || undefined}
+            onChange={(e) =>
+              onChange({ from: query.from, to: e.target.value || undefined })
+            }
+            className="h-9 w-[160px]"
+          />
+        </div>
+        {hasFilter && (
+          <Button variant="ghost" size="sm" onClick={() => onChange({})}>
+            <X className="h-3.5 w-3.5" /> Clear
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function CustomerTransactionsClient({
   transactions,
+  total,
+  page,
+  totalPages,
+  pageSize,
+  query,
 }: {
   transactions: Row[];
+  total: number;
+  page: number;
+  totalPages: number;
+  pageSize: PageSize;
+  query: TxQuery;
 }) {
+  const router = useRouter();
   const [viewing, setViewing] = useState<Row | null>(null);
+
+  const startIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endIdx = Math.min(page * pageSize, total);
+
+  const hrefFor = (p: number) => buildHref(query, p, pageSize);
+  // Changing page size resets to page 1.
+  const onPageSizeChange = (n: PageSize) =>
+    router.replace(buildHref(query, 1, n));
+  // Applying a date filter resets to page 1.
+  const onFilterChange = (next: TxQuery) =>
+    router.replace(buildHref(next, 1, pageSize));
 
   return (
     <>
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Profile</TableHead>
-                <TableHead>Sender</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Details</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    {formatDateTime(t.createdAt)}
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-mono text-xs">
-                      {truncateMiddle(t.reference, 6, 4)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {t.profile.firstName} {t.profile.lastName}
-                  </TableCell>
-                  <TableCell className="text-sm">{t.senderName}</TableCell>
-                  <TableCell>
-                    <span className="rounded-md bg-muted px-2 py-1 font-mono text-xs">
-                      {t.type}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {formatUSD(t.amountCents)}
-                  </TableCell>
-                  <TableCell>
-                    <TransactionStatusBadge status={t.status} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setViewing(t)}
-                      aria-label="View details"
-                      title="View details"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                    </Button>
-                  </TableCell>
+      <TransactionsToolbar query={query} onChange={onFilterChange} />
+
+      {total === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <div className="grid h-12 w-12 place-items-center rounded-lg bg-primary/10 text-primary">
+              <Receipt className="h-5 w-5" />
+            </div>
+            <h3 className="text-lg font-semibold">
+              No transactions in this range
+            </h3>
+            <p className="max-w-md text-sm text-muted-foreground">
+              No transfers fall within the selected dates. Try widening or
+              clearing the date filter.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Reference</TableHead>
+                  <TableHead>Profile</TableHead>
+                  <TableHead>Sender</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Details</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {transactions.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                      {formatDateTime(t.createdAt)}
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono text-xs">
+                        {truncateMiddle(t.reference, 6, 4)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {t.profile.firstName} {t.profile.lastName}
+                    </TableCell>
+                    <TableCell className="text-sm">{t.senderName}</TableCell>
+                    <TableCell>
+                      <span className="rounded-md bg-muted px-2 py-1 font-mono text-xs">
+                        {t.type}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {formatUSD(t.amountCents)}
+                    </TableCell>
+                    <TableCell>
+                      <TransactionStatusBadge status={t.status} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setViewing(t)}
+                        aria-label="View details"
+                        title="View details"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {total > 0 && (
+        <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
+          <PageSizeSelector value={pageSize} onChange={onPageSizeChange} />
+          <Pagination page={page} totalPages={totalPages} hrefFor={hrefFor} />
+          <div className="hidden text-sm text-muted-foreground sm:block">
+            {startIdx}–{endIdx} of {total}
+          </div>
+        </div>
+      )}
 
       <Dialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)}>
         {viewing && <TransactionViewDialog tx={viewing} onClose={() => setViewing(null)} />}

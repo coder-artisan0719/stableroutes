@@ -221,6 +221,20 @@ export async function setTransactionStatus(input: unknown) {
     return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
+  const current = await prisma.transaction.findUnique({
+    where: { id: parsed.data.id },
+    select: { status: true },
+  });
+  if (!current) {
+    return { ok: false as const, error: "Transaction not found" };
+  }
+  if (current.status === "COMPLETED") {
+    return {
+      ok: false as const,
+      error: "Completed payments are final and can't be changed.",
+    };
+  }
+
   const now = new Date();
   const updated = await prisma.transaction.update({
     where: { id: parsed.data.id },

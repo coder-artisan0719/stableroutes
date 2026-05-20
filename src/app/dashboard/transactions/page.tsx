@@ -1,17 +1,61 @@
 import { Receipt } from "lucide-react";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireCustomer } from "@/lib/auth-guards";
+import { parsePageSize } from "@/lib/page-size";
 import { Card, CardContent } from "@/components/ui/card";
 import { CustomerTransactionsClient } from "./transactions-client";
 
 export const metadata = { title: "Transactions" };
 
-export default async function TransactionsPage() {
+/** Validate a `YYYY-MM-DD` query value, returning it only if it's a real date. */
+function validDateStr(raw: string | undefined): string | undefined {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return undefined;
+  const d = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? undefined : raw;
+}
+
+export default async function TransactionsPage({
+  searchParams,
+}: {
+  searchParams: { page?: string; pageSize?: string; from?: string; to?: string };
+}) {
   const session = await requireCustomer();
+  const userId = session.user.id;
+
+  const totalAll = await prisma.transaction.count({ where: { userId } });
+
+  const fromStr = validDateStr(searchParams.from);
+  const toStr = validDateStr(searchParams.to);
+  const fromDate = fromStr ? new Date(`${fromStr}T00:00:00`) : undefined;
+  const toDate = toStr ? new Date(`${toStr}T23:59:59.999`) : undefined;
+
+  const where: Prisma.TransactionWhereInput = {
+    userId,
+    ...(fromDate || toDate
+      ? {
+          createdAt: {
+            ...(fromDate ? { gte: fromDate } : {}),
+            ...(toDate ? { lte: toDate } : {}),
+          },
+        }
+      : {}),
+  };
+
+  const pageSize = parsePageSize(searchParams.pageSize);
+  const total = await prisma.transaction.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(
+    Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1),
+    totalPages,
+  );
+
   const transactions = await prisma.transaction.findMany({
-    where: { userId: session.user.id },
+    where,
     orderBy: { createdAt: "desc" },
     include: { profile: true },
+    take: pageSize,
+    skip: (page - 1) * pageSize,
   });
 
   return (
@@ -25,7 +69,7 @@ export default async function TransactionsPage() {
         </p>
       </div>
 
-      {transactions.length === 0 ? (
+      {totalAll === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <div className="grid h-12 w-12 place-items-center rounded-lg bg-primary/10 text-primary">
@@ -39,7 +83,14 @@ export default async function TransactionsPage() {
           </CardContent>
         </Card>
       ) : (
-        <CustomerTransactionsClient transactions={transactions} />
+        <CustomerTransactionsClient
+          transactions={transactions}
+          total={total}
+          page={page}
+          totalPages={totalPages}
+          pageSize={pageSize}
+          query={{ from: fromStr, to: toStr }}
+        />
       )}
     </div>
   );
