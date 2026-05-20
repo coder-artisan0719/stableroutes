@@ -223,8 +223,21 @@ export function AdminTransactionsClient({
                         {t.type}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {formatUSD(t.amountCents)}
+                    <TableCell className="text-right">
+                      <div className="font-semibold">
+                        {formatUSD(t.amountCents)}
+                      </div>
+                      {t.commissionPct > 0 && (
+                        <div className="text-xs font-normal text-muted-foreground">
+                          {t.commissionPct}% fee · net{" "}
+                          {formatUSD(
+                            t.amountCents -
+                              Math.round(
+                                (t.amountCents * t.commissionPct) / 100,
+                              ),
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <TransactionStatusBadge status={t.status} />

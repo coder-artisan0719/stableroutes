@@ -237,7 +237,8 @@ export function transactionStatusEmail({
       : "";
 
   // For a settled transfer, show the amount the customer actually received
-  // (after the commission fee) — not the original gross amount.
+  // (net of any commission). The commission itself is intentionally not
+  // itemised in the email — only the final figure is shown.
   const feeCents = Math.round(
     (transaction.amountCents * transaction.commissionPct) / 100,
   );
@@ -245,12 +246,7 @@ export function transactionStatusEmail({
   const isCompleted = transaction.status === "COMPLETED";
 
   const amountRows = isCompleted
-    ? (transaction.commissionPct > 0
-        ? row(
-            "Commission",
-            `${transaction.commissionPct}% (−${formatUSD(feeCents)})`,
-          )
-        : "") + row("Amount settled", formatUSD(netCents))
+    ? row("Amount settled", formatUSD(netCents))
     : row("Amount", formatUSD(transaction.amountCents));
 
   const body = `

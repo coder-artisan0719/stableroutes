@@ -33,12 +33,7 @@ import {
 } from "@/components/ui/table";
 import { TransactionStatusBadge } from "@/components/status-badge";
 import { CircleUsdcLogo } from "@/components/partner-logos";
-import {
-  commissionBreakdown,
-  formatDateTime,
-  formatUSD,
-  truncateMiddle,
-} from "@/lib/utils";
+import { formatDateTime, formatUSD, truncateMiddle } from "@/lib/utils";
 
 type Row = Transaction & { profile: CustomerProfile };
 
@@ -269,28 +264,7 @@ function TransactionViewDialog({
             />
             <DetailRow label="Method" value={`${tx.type} transfer`} />
             <DetailRow label="Sender" value={tx.senderName} />
-            <DetailRow
-              label={tx.commissionPct > 0 ? "Gross amount" : "Amount"}
-              value={formatUSD(tx.amountCents)}
-            />
-            {tx.commissionPct > 0 && (
-              <>
-                <DetailRow
-                  label={`Commission (${tx.commissionPct}%)`}
-                  value={`− ${formatUSD(
-                    commissionBreakdown(tx.amountCents, tx.commissionPct)
-                      .feeCents,
-                  )}`}
-                />
-                <DetailRow
-                  label="Net amount"
-                  value={formatUSD(
-                    commissionBreakdown(tx.amountCents, tx.commissionPct)
-                      .netCents,
-                  )}
-                />
-              </>
-            )}
+            <DetailRow label="Amount" value={formatUSD(tx.amountCents)} />
             {tx.description && (
               <DetailRow label="Note" value={tx.description} />
             )}

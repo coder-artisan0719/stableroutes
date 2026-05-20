@@ -740,10 +740,6 @@ function ProfileViewDialog({
                     : undefined
                 }
               />
-              <Detail
-                label="Commission fee"
-                value={`${profile.commissionPct}%`}
-              />
             </dl>
             <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
               <Lock className="mt-0.5 h-3 w-3" />
