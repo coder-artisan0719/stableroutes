@@ -1246,7 +1246,7 @@ export default function HomePage() {
               >
                 <Quote className="h-5 w-5 text-primary/60" />
                 <blockquote className="mt-3 flex-1 text-sm leading-relaxed">
-                  "{t.quote}"
+                  &ldquo;{t.quote}&rdquo;
                 </blockquote>
                 <figcaption className="mt-5 border-t border-border/60 pt-4 text-sm">
                   <p className="font-medium">{t.name}</p>
