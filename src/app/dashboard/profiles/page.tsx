@@ -36,7 +36,7 @@ export default async function ProfilesPage({
     : "newest";
   const view = (ALLOWED_VIEW as readonly string[]).includes(searchParams.view ?? "")
     ? (searchParams.view as (typeof ALLOWED_VIEW)[number])
-    : "grid";
+    : "table";
   const pageSize = parsePageSize(searchParams.pageSize);
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
 

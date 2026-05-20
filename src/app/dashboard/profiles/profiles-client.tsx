@@ -5,6 +5,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
   Copy,
   Eye,
   Landmark,
@@ -36,21 +39,13 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Pagination } from "@/components/ui/pagination";
 import { PageSizeSelector } from "@/components/ui/page-size";
 import type { PageSize } from "@/lib/page-size";
 import { useRouter } from "next/navigation";
 import { ProfileStatusBadge } from "@/components/status-badge";
 import { profileSchema, type ProfileInput } from "@/lib/validators";
-import { formatDate, truncateMiddle } from "@/lib/utils";
+import { cn, formatDate, truncateMiddle } from "@/lib/utils";
 import { createProfile, deleteProfile, updateProfile } from "../actions";
 import { ProfilesToolbar, type ProfilesQuery } from "./profiles-toolbar";
 
@@ -181,7 +176,7 @@ function buildHref(q: ResolvedQuery & { page: number; pageSize?: PageSize }) {
   if (q.q) params.set("q", q.q);
   if (q.status) params.set("status", q.status);
   if (q.sort && q.sort !== "newest") params.set("sort", q.sort);
-  if (q.view && q.view !== "grid") params.set("view", q.view);
+  if (q.view && q.view !== "table") params.set("view", q.view);
   if (q.page > 1) params.set("page", String(q.page));
   if (q.pageSize && q.pageSize !== 10) params.set("pageSize", String(q.pageSize));
   const qs = params.toString();
@@ -374,6 +369,31 @@ function BankRow({
   );
 }
 
+// Muted palette for the per-profile circular icon (Found-style).
+const POCKET_COLORS = [
+  "bg-emerald-600",
+  "bg-teal-600",
+  "bg-amber-600",
+  "bg-sky-700",
+  "bg-violet-600",
+  "bg-rose-600",
+  "bg-slate-600",
+];
+
+function pocketColor(id: string) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return POCKET_COLORS[h % POCKET_COLORS.length];
+}
+
+function initialsOf(p: CustomerProfile) {
+  return (
+    (p.firstName[0] ?? "") + (p.lastName[0] ?? "")
+  ).toUpperCase();
+}
+
+/** Found-style "Pockets" list — clickable rows with circular icons,
+ *  masked account numbers, routing numbers, and status. */
 function ProfilesTable({
   profiles,
   onView,
@@ -384,12 +404,22 @@ function ProfilesTable({
   onEdit: (p: CustomerProfile) => void;
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
 
-  const copy = (address: string) => {
-    navigator.clipboard.writeText(address);
-    toast.success("Copied");
+  const toggleReveal = (id: string) =>
+    setRevealed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const copy = (value: string, label = "Copied") => {
+    navigator.clipboard.writeText(value);
+    toast.success(label);
   };
+
   const remove = (id: string) => {
     if (!confirm("Delete this profile? This cannot be undone.")) return;
     setPendingId(id);
@@ -402,101 +432,147 @@ function ProfilesTable({
   };
 
   return (
-    <Card>
-      <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Sender</TableHead>
-              <TableHead>Bank</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead>Withdrawal</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {profiles.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell className="font-medium">
-                  {p.firstName} {p.lastName}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {p.senderName}
-                </TableCell>
-                <TableCell className="text-sm">{p.bankName ?? "—"}</TableCell>
-                <TableCell>
-                  {p.accountNumber ? (
+    <Card className="overflow-hidden">
+      {/* Column header */}
+      <div className="hidden grid-cols-[1.6fr_1fr_1fr_auto] gap-4 border-b border-border bg-muted/40 px-5 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid">
+        <span>Name</span>
+        <span>Account number</span>
+        <span>Routing number</span>
+        <span className="w-32 text-right">Status</span>
+      </div>
+
+      <ul className="divide-y divide-border">
+        {profiles.map((p) => {
+          const isRevealed = revealed.has(p.id);
+          const approved = p.status === "APPROVED" && p.accountNumber;
+          return (
+            <li key={p.id}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onView(p)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") onView(p);
+                }}
+                className="group grid cursor-pointer grid-cols-1 gap-3 px-5 py-4 transition-colors hover:bg-accent/40 md:grid-cols-[1.6fr_1fr_1fr_auto] md:items-center md:gap-4"
+              >
+                {/* Name + icon */}
+                <div className="flex items-center gap-3">
+                  <span
+                    className={cn(
+                      "grid h-11 w-11 shrink-0 place-items-center rounded-full text-sm font-semibold text-white",
+                      pocketColor(p.id),
+                    )}
+                  >
+                    {initialsOf(p)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {p.firstName} {p.lastName}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      Sender: {p.senderName}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Account number */}
+                <div className="min-w-0">
+                  <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground md:hidden">
+                    Account number
+                  </p>
+                  {approved ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-sm">
+                        {isRevealed
+                          ? p.accountNumber
+                          : `•••• •••• ${p.accountNumber!.slice(-4)}`}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={isRevealed ? "Hide" : "Reveal"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleReveal(p.id);
+                        }}
+                        className="text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        {isRevealed ? (
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Copy account number"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copy(p.accountNumber!, "Account copied");
+                        }}
+                        className="text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      Pending approval
+                    </span>
+                  )}
+                </div>
+
+                {/* Routing number */}
+                <div className="min-w-0">
+                  <p className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground md:hidden">
+                    Routing number
+                  </p>
+                  <span className="font-mono text-sm">
+                    {approved && p.routingNumber ? p.routingNumber : "—"}
+                  </span>
+                </div>
+
+                {/* Status + actions */}
+                <div className="flex items-center justify-between gap-2 md:w-32 md:justify-end">
+                  <ProfileStatusBadge status={p.status} />
+                  <div className="flex items-center gap-0.5">
                     <button
                       type="button"
-                      onClick={() => copy(p.accountNumber!)}
-                      title="Copy"
-                      className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      {p.accountNumber}
-                      <Copy className="h-3 w-3" />
-                    </button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <button
-                    type="button"
-                    onClick={() => copy(p.withdrawalAddress)}
-                    title="Copy"
-                    className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    {truncateMiddle(p.withdrawalAddress, 8, 6)}
-                    <Copy className="h-3 w-3" />
-                  </button>
-                </TableCell>
-                <TableCell>
-                  <ProfileStatusBadge status={p.status} />
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="inline-flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onView(p)}
-                      aria-label="View"
-                      title="View"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onEdit(p)}
                       aria-label="Edit"
                       title="Edit"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEdit(p);
+                      }}
+                      className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground focus:opacity-100 group-hover:opacity-100"
                     >
                       <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => remove(p.id)}
-                      disabled={pendingId === p.id}
+                    </button>
+                    <button
+                      type="button"
                       aria-label="Delete"
                       title="Delete"
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      disabled={pendingId === p.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        remove(p.id);
+                      }}
+                      className="grid h-8 w-8 place-items-center rounded-md text-destructive opacity-0 transition hover:bg-destructive/10 focus:opacity-100 group-hover:opacity-100"
                     >
                       {pendingId === p.id ? (
-                        <Loader2 className="animate-spin" />
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Trash2 className="h-3.5 w-3.5" />
                       )}
-                    </Button>
+                    </button>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </Card>
   );
 }

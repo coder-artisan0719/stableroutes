@@ -5,6 +5,8 @@ import {
   profileStatusEmail,
   welcomeEmail,
   verificationCodeEmail,
+  passwordResetEmail,
+  adminNewProfileEmail,
 } from "@/lib/email-templates";
 import { CODE_TTL_MINUTES } from "@/lib/verification";
 import type { Transaction, CustomerProfile } from "@prisma/client";
@@ -107,6 +109,30 @@ export async function sendVerificationCodeEmail(args: {
   });
 }
 
+export async function sendPasswordResetEmail(args: {
+  userId: string;
+  email: string;
+  name: string | null;
+  code: string;
+}) {
+  if (process.env.NODE_ENV !== "production") {
+    const line = "═".repeat(56);
+    console.log(
+      `\n${line}\n  🔑 PASSWORD RESET CODE for ${args.email}\n  →  ${args.code}\n  (expires in ${CODE_TTL_MINUTES} min)\n${line}\n`,
+    );
+  }
+  return send({
+    userId: args.userId,
+    to: args.email,
+    subject: "Reset your StableRoute password",
+    html: passwordResetEmail({
+      name: args.name ?? "there",
+      code: args.code,
+      ttlMinutes: CODE_TTL_MINUTES,
+    }),
+  });
+}
+
 export async function sendTransactionStatusEmail(args: {
   user: { id: string; email: string; name: string | null };
   transaction: Transaction;
@@ -129,6 +155,30 @@ export async function sendTransactionStatusEmail(args: {
       transaction,
     }),
   });
+}
+
+/** Notifies every admin user that a customer submitted a new profile. */
+export async function sendAdminNewProfileEmail(args: {
+  profile: CustomerProfile;
+  customer: { email: string; name: string | null };
+}) {
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN" },
+    select: { id: true, email: true },
+  });
+  const html = adminNewProfileEmail({
+    profile: args.profile,
+    customerName: args.customer.name,
+    customerEmail: args.customer.email,
+  });
+  for (const admin of admins) {
+    await send({
+      userId: admin.id,
+      to: admin.email,
+      subject: "New profile submitted for review",
+      html,
+    });
+  }
 }
 
 export async function sendProfileStatusEmail(args: {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -22,12 +23,14 @@ export function LoginForm({
   initialError,
   verified,
   expired,
+  reset,
   prefillEmail,
 }: {
   callbackUrl?: string;
   initialError?: string;
   verified?: boolean;
   expired?: boolean;
+  reset?: boolean;
   prefillEmail?: string;
 }) {
   const router = useRouter();
@@ -102,13 +105,19 @@ export function LoginForm({
             <span>Email verified. You can sign in now.</span>
           </div>
         )}
-        {expired && !error && !verified && (
+        {expired && !error && !verified && !reset && (
           <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
             <Clock className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               You were signed out after 1 hour of inactivity. Please sign in
               again.
             </span>
+          </div>
+        )}
+        {reset && !error && (
+          <div className="flex items-start gap-2 rounded-lg border border-success/40 bg-success/10 p-3 text-sm text-success">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Password updated. Sign in with your new password.</span>
           </div>
         )}
         {error && (
@@ -131,7 +140,15 @@ export function LoginForm({
           )}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <PasswordInput
             id="password"
             autoComplete="current-password"

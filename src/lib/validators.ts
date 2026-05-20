@@ -28,6 +28,22 @@ export const passwordUpdateSchema = z
     message: "Passwords do not match",
   });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+export const resetPasswordSchema = z
+  .object({
+    email: z.string().email(),
+    code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+    password: z.string().min(8, "Password must be at least 8 characters").max(128),
+    confirm: z.string().min(8).max(128),
+  })
+  .refine((v) => v.password === v.confirm, {
+    path: ["confirm"],
+    message: "Passwords do not match",
+  });
+
 // Loose check for a USDC (Base) recipient address — EVM-style 0x + 40 hex chars.
 const evmAddress = z
   .string()

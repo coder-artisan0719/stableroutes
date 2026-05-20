@@ -11,6 +11,7 @@ import {
   profilePendingUpdateSchema,
   transactionCreateSchema,
 } from "@/lib/validators";
+import { sendAdminNewProfileEmail } from "@/lib/email";
 
 async function requireUserId() {
   const session = await auth();
@@ -26,12 +27,22 @@ export async function createProfile(input: unknown) {
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
-  await prisma.customerProfile.create({
+  const profile = await prisma.customerProfile.create({
     data: {
       userId,
       ...parsed.data,
     },
   });
+
+  // Notify admins that a new profile is waiting for review.
+  const customer = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true },
+  });
+  if (customer) {
+    void sendAdminNewProfileEmail({ profile, customer });
+  }
+
   revalidatePath("/dashboard/profiles");
   revalidatePath("/dashboard");
   return { ok: true as const };

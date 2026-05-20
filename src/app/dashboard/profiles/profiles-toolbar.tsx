@@ -47,7 +47,7 @@ export function ProfilesToolbar({
     if (merged.q) params.set("q", merged.q);
     if (merged.status) params.set("status", merged.status);
     if (merged.sort && merged.sort !== "newest") params.set("sort", merged.sort);
-    if (merged.view && merged.view !== "grid") params.set("view", merged.view);
+    if (merged.view && merged.view !== "table") params.set("view", merged.view);
     // Any filter/search change resets to page 1 — don't carry `page`.
     const qs = params.toString();
     startTransition(() => {

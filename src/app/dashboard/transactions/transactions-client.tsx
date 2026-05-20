@@ -112,37 +112,24 @@ export function CustomerTransactionsClient({
   );
 }
 
-function TransactionViewDialog({
-  tx,
-  onClose,
+function DetailRow({
+  label,
+  value,
+  mono,
+  onCopy,
+  href,
 }: {
-  tx: Row;
-  onClose: () => void;
+  label: string;
+  value: string;
+  mono?: boolean;
+  onCopy?: () => void;
+  href?: string;
 }) {
-  const copy = (value: string, label: string) => {
-    navigator.clipboard.writeText(value);
-    toast.success(`${label} copied`);
-  };
-
-  const Detail = ({
-    label,
-    value,
-    mono,
-    onCopy,
-    href,
-  }: {
-    label: string;
-    value: string;
-    mono?: boolean;
-    onCopy?: () => void;
-    href?: string;
-  }) => (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <dt className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </dt>
+  return (
+    <div className="flex items-start justify-between gap-3 py-2.5">
+      <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
       <dd
-        className={`flex min-w-0 items-center justify-end gap-2 text-sm text-foreground ${
+        className={`flex min-w-0 items-center justify-end gap-2 text-sm font-medium text-foreground ${
           mono ? "font-mono text-xs" : ""
         }`}
       >
@@ -172,168 +159,214 @@ function TransactionViewDialog({
       </dd>
     </div>
   );
+}
+
+function Panel({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="border-b border-border/70 bg-muted/40 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </div>
+      <div className="px-4">{children}</div>
+    </div>
+  );
+}
+
+function TransactionViewDialog({
+  tx,
+  onClose,
+}: {
+  tx: Row;
+  onClose: () => void;
+}) {
+  const copy = (value: string, label: string) => {
+    navigator.clipboard.writeText(value);
+    toast.success(`${label} copied`);
+  };
 
   const isCompleted = tx.status === "COMPLETED";
   const isRefunded = tx.status === "REFUNDED";
   const isScheduled = tx.status === "SCHEDULED";
   const baseScanUrl = tx.txHash ? `https://basescan.org/tx/${tx.txHash}` : null;
 
+  // Status accent for the amount hero.
+  const accent = isCompleted
+    ? "text-success"
+    : isRefunded
+      ? "text-destructive"
+      : "text-foreground";
+
+  // Activity timeline — only events that actually occurred.
+  type Tone = "neutral" | "primary" | "success" | "destructive";
+  const events: { label: string; at: Date; tone: Tone }[] = [
+    { label: "Transfer initiated", at: tx.createdAt, tone: "neutral" },
+  ];
+  if (tx.scheduledFor)
+    events.push({
+      label: isScheduled ? "Scheduled to process" : "Scheduled",
+      at: tx.scheduledFor,
+      tone: "primary",
+    });
+  if (tx.completedAt)
+    events.push({
+      label: "Settled to USDC on Base",
+      at: tx.completedAt,
+      tone: "success",
+    });
+  if (tx.refundedAt)
+    events.push({
+      label: "Transfer refunded",
+      at: tx.refundedAt,
+      tone: "destructive",
+    });
+
+  const toneDot: Record<Tone, string> = {
+    neutral: "bg-muted-foreground",
+    primary: "bg-primary",
+    success: "bg-success",
+    destructive: "bg-destructive",
+  };
+
   return (
-    <DialogContent className="flex max-h-[85vh] max-w-lg flex-col gap-0 p-0">
-      <DialogHeader className="border-b px-6 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <DialogTitle className="text-xl">
-              {formatUSD(tx.amountCents)}
-            </DialogTitle>
-            <DialogDescription>
-              From {tx.senderName} via {tx.type}
-            </DialogDescription>
-          </div>
+    <DialogContent className="flex max-h-[85vh] max-w-md flex-col gap-0 p-0">
+      {/* Amount hero — receipt-style header */}
+      <DialogHeader className="space-y-0 border-b px-6 pb-5 pt-6 text-left">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Transaction
+          </span>
           <TransactionStatusBadge status={tx.status} />
         </div>
+        <DialogTitle
+          className={`mt-3 font-display text-3xl font-bold tracking-tight ${accent}`}
+        >
+          {formatUSD(tx.amountCents)}
+        </DialogTitle>
+        <DialogDescription className="mt-1">
+          From {tx.senderName} &middot; {tx.type} transfer
+        </DialogDescription>
       </DialogHeader>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-        <section>
-          <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <Receipt className="h-3.5 w-3.5" /> Transfer
-          </h3>
-          <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
-            <Detail
+      <div className="flex-1 space-y-4 overflow-y-auto bg-muted/20 px-6 py-5">
+        <Panel title="Transfer details">
+          <dl className="divide-y divide-border/60">
+            <DetailRow
               label="Reference"
               value={tx.reference}
               mono
               onCopy={() => copy(tx.reference, "Reference")}
             />
-            <Detail label="Type" value={tx.type} />
-            <Detail label="Sender" value={tx.senderName} />
-            <Detail label="Amount" value={formatUSD(tx.amountCents)} />
-            {tx.description && <Detail label="Description" value={tx.description} />}
+            <DetailRow label="Method" value={`${tx.type} transfer`} />
+            <DetailRow label="Sender" value={tx.senderName} />
+            <DetailRow label="Amount" value={formatUSD(tx.amountCents)} />
+            {tx.description && (
+              <DetailRow label="Note" value={tx.description} />
+            )}
           </dl>
-        </section>
+        </Panel>
 
-        <section>
-          <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <Landmark className="h-3.5 w-3.5" /> Routed to
-          </h3>
-          <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
-            <Detail
+        <Panel title="Settlement destination">
+          <dl className="divide-y divide-border/60">
+            <DetailRow
               label="Profile"
               value={`${tx.profile.firstName} ${tx.profile.lastName}`}
             />
-            <Detail
-              label="Withdrawal (USDC Base)"
+            <DetailRow
+              label="USDC wallet (Base)"
               value={tx.profile.withdrawalAddress}
               mono
               onCopy={() => copy(tx.profile.withdrawalAddress, "Address")}
             />
           </dl>
-        </section>
+        </Panel>
 
         {isCompleted && (
-          <section>
-            <div className="mb-1 flex items-center justify-between">
-              <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <CircleUsdcLogo className="text-[10px]" />
-              </h3>
-              <Badge variant="success">Settled</Badge>
-            </div>
-            <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
+          <Panel title="On-chain settlement">
+            <dl className="divide-y divide-border/60">
               {tx.txHash ? (
-                <Detail
-                  label="Tx hash"
+                <DetailRow
+                  label="Transaction hash"
                   value={truncateMiddle(tx.txHash, 10, 8)}
                   mono
                   href={baseScanUrl ?? undefined}
                   onCopy={() => copy(tx.txHash!, "Tx hash")}
                 />
               ) : (
-                <div className="flex items-start justify-between gap-3 py-2">
-                  <dt className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
-                    Tx hash
-                  </dt>
-                  <dd className="text-sm text-muted-foreground">Pending publish</dd>
-                </div>
+                <DetailRow label="Transaction hash" value="Pending publish" />
               )}
-              {tx.completedAt && (
-                <Detail label="Completed" value={formatDateTime(tx.completedAt)} />
-              )}
+              <div className="py-2.5">
+                {baseScanUrl ? (
+                  <a
+                    href={baseScanUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                  >
+                    <Coins className="h-3.5 w-3.5" />
+                    Verify on BaseScan
+                    <ArrowUpRight className="h-3 w-3" />
+                  </a>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <CircleUsdcLogo className="text-[10px]" /> Settled to USDC
+                  </span>
+                )}
+              </div>
             </dl>
-            {baseScanUrl && (
-              <a
-                href={baseScanUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-              >
-                <Coins className="h-3.5 w-3.5" />
-                View settlement on BaseScan
-                <ArrowUpRight className="h-3 w-3" />
-              </a>
-            )}
-          </section>
+          </Panel>
         )}
 
         {isScheduled && tx.scheduledFor && (
-          <section>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Scheduled
-            </h3>
-            <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
-              <Detail
-                label="Will process on"
+          <Panel title="Scheduled">
+            <dl className="divide-y divide-border/60">
+              <DetailRow
+                label="Processes on"
                 value={formatDateTime(tx.scheduledFor)}
               />
             </dl>
-            <p className="mt-2 text-xs text-muted-foreground">
-              We&apos;ll email you again when this transfer moves from Scheduled
-              to Pending, and once more when it settles.
-            </p>
-          </section>
+          </Panel>
         )}
 
-        {isRefunded && (
-          <section>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Refund
-            </h3>
-            <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
-              {tx.refundedAt && (
-                <Detail label="Refunded" value={formatDateTime(tx.refundedAt)} />
-              )}
-              {tx.refundReason && (
-                <Detail label="Reason" value={tx.refundReason} />
-              )}
-            </dl>
-          </section>
+        {isRefunded && tx.refundReason && (
+          <Panel title="Refund reason">
+            <p className="py-3 text-sm text-foreground">{tx.refundReason}</p>
+          </Panel>
         )}
 
-        <section>
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Timeline
-          </h3>
-          <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
-            <Detail label="Initiated" value={formatDateTime(tx.createdAt)} />
-            {tx.scheduledFor && (
-              <Detail
-                label="Scheduled for"
-                value={formatDateTime(tx.scheduledFor)}
-              />
-            )}
-            {tx.completedAt && (
-              <Detail label="Completed" value={formatDateTime(tx.completedAt)} />
-            )}
-            {tx.refundedAt && (
-              <Detail label="Refunded" value={formatDateTime(tx.refundedAt)} />
-            )}
-            <Detail label="Last updated" value={formatDateTime(tx.updatedAt)} />
-          </dl>
-        </section>
+        {/* Visual activity timeline */}
+        <Panel title="Activity">
+          <ol className="py-3">
+            {events.map((e, i) => (
+              <li key={i} className="relative flex gap-3 pb-5 last:pb-0">
+                {i < events.length - 1 && (
+                  <span
+                    className="absolute left-[4.5px] top-3 h-full w-px bg-border"
+                    aria-hidden
+                  />
+                )}
+                <span
+                  className={`relative z-10 mt-1 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-card ${toneDot[e.tone]}`}
+                />
+                <div className="-mt-0.5">
+                  <p className="text-sm font-medium text-foreground">{e.label}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDateTime(e.at)}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </Panel>
       </div>
 
       <DialogFooter className="border-t px-6 py-4">
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="outline" onClick={onClose} className="w-full sm:w-auto">
           Close
         </Button>
       </DialogFooter>
