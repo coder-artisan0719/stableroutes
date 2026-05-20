@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import {
+  Ban,
   Check,
   Copy,
   Eye,
@@ -15,6 +16,7 @@ import {
   List,
   Loader2,
   Mail,
+  Pencil,
   ShieldAlert,
   Trash2,
   User as UserIcon,
@@ -55,6 +57,11 @@ import { Pagination } from "@/components/ui/pagination";
 import { PageSizeSelector } from "@/components/ui/page-size";
 import type { PageSize } from "@/lib/page-size";
 import { ProfileStatusBadge } from "@/components/status-badge";
+import {
+  CurrencyFlag,
+  CurrencyFlagLabel,
+  currencyMeta,
+} from "@/components/currency-flag";
 import { cn, formatDateTime, truncateMiddle } from "@/lib/utils";
 import { bankDetailsSchema, type BankDetailsInput } from "@/lib/validators";
 import { adminDeleteProfile, setProfileStatus } from "../actions";
@@ -63,22 +70,26 @@ type Row = CustomerProfile & { userEmail: string; userName: string | null };
 
 type ViewParam = "grid" | "table";
 
+const COMMISSION_OPTIONS = ["0", "2", "3", "4", "5", "6", "7", "8", "10"];
+
 export function AdminProfilesClient({
   profiles,
   active,
   view,
   pendingCount,
   approvedCount,
+  rejectedCount,
   page,
   totalPages,
   pageSize,
   total,
 }: {
   profiles: Row[];
-  active: "PENDING" | "APPROVED";
+  active: "PENDING" | "APPROVED" | "REJECTED";
   view: ViewParam;
   pendingCount: number;
   approvedCount: number;
+  rejectedCount: number;
   page: number;
   totalPages: number;
   pageSize: PageSize;
@@ -87,6 +98,7 @@ export function AdminProfilesClient({
   const router = useRouter();
   const [approving, setApproving] = useState<Row | null>(null);
   const [demoting, setDemoting] = useState<Row | null>(null);
+  const [rejecting, setRejecting] = useState<Row | null>(null);
   const [deleting, setDeleting] = useState<Row | null>(null);
   const [viewing, setViewing] = useState<Row | null>(null);
 
@@ -134,6 +146,16 @@ export function AdminProfilesClient({
           }`}
         >
           Approved <span className="ml-1 text-xs">({approvedCount})</span>
+        </Link>
+        <Link
+          href={hrefFor({ status: "REJECTED", page: 1 })}
+          className={`flex-1 rounded-md px-4 py-2 text-center font-medium transition-colors ${
+            active === "REJECTED"
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-accent"
+          }`}
+        >
+          Rejected <span className="ml-1 text-xs">({rejectedCount})</span>
         </Link>
       </div>
 
@@ -189,6 +211,7 @@ export function AdminProfilesClient({
           onView={setViewing}
           onApprove={setApproving}
           onDemote={setDemoting}
+          onReject={setRejecting}
           onDelete={setDeleting}
         />
       ) : (
@@ -197,6 +220,7 @@ export function AdminProfilesClient({
           onView={setViewing}
           onApprove={setApproving}
           onDemote={setDemoting}
+          onReject={setRejecting}
           onDelete={setDeleting}
         />
       )}
@@ -229,6 +253,11 @@ export function AdminProfilesClient({
       <Dialog open={demoting !== null} onOpenChange={(v) => !v && setDemoting(null)}>
         {demoting && (
           <DemoteDialog profile={demoting} onDone={() => setDemoting(null)} />
+        )}
+      </Dialog>
+      <Dialog open={rejecting !== null} onOpenChange={(v) => !v && setRejecting(null)}>
+        {rejecting && (
+          <RejectDialog profile={rejecting} onDone={() => setRejecting(null)} />
         )}
       </Dialog>
       <Dialog open={deleting !== null} onOpenChange={(v) => !v && setDeleting(null)}>
@@ -270,6 +299,7 @@ function ActionButtons({
   onView,
   onApprove,
   onDemote,
+  onReject,
   onDelete,
   compact,
 }: {
@@ -277,6 +307,7 @@ function ActionButtons({
   onView: (r: Row) => void;
   onApprove: (r: Row) => void;
   onDemote: (r: Row) => void;
+  onReject: (r: Row) => void;
   onDelete: (r: Row) => void;
   compact?: boolean;
 }) {
@@ -291,7 +322,18 @@ function ActionButtons({
       >
         <Eye className="h-3.5 w-3.5" />
       </Button>
-      {row.status !== "APPROVED" && (
+      {row.status === "APPROVED" ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onApprove(row)}
+          className="text-primary hover:bg-primary/10 hover:text-primary"
+          aria-label="Edit bank & commission"
+          title="Edit bank & commission"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      ) : (
         <Button
           size="sm"
           variant="ghost"
@@ -301,6 +343,18 @@ function ActionButtons({
           title="Approve"
         >
           <Check className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      {row.status !== "REJECTED" && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onReject(row)}
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Reject"
+          title="Reject"
+        >
+          <Ban className="h-3.5 w-3.5" />
         </Button>
       )}
       {row.status !== "PENDING" && (
@@ -319,7 +373,7 @@ function ActionButtons({
         size="sm"
         variant="ghost"
         onClick={() => onDelete(row)}
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground"
         aria-label="Delete"
         title="Delete"
       >
@@ -334,12 +388,14 @@ function ProfilesGrid({
   onView,
   onApprove,
   onDemote,
+  onReject,
   onDelete,
 }: {
   rows: Row[];
   onView: (r: Row) => void;
   onApprove: (r: Row) => void;
   onDemote: (r: Row) => void;
+  onReject: (r: Row) => void;
   onDelete: (r: Row) => void;
 }) {
   return (
@@ -359,6 +415,16 @@ function ProfilesGrid({
                 <DLRow
                   label="Account name"
                   value={`${p.firstName} ${p.lastName}`}
+                />
+                <DLRow
+                  label="Currency"
+                  value={
+                    <CurrencyFlagLabel
+                      code={p.accountCurrency}
+                      size="sm"
+                      className="text-xs"
+                    />
+                  }
                 />
                 <DLRow label="Sender" value={p.senderName} />
                 <DLRow
@@ -381,6 +447,7 @@ function ProfilesGrid({
                           : (p.transferMethod ?? "—")
                       }
                     />
+                    <DLRow label="Commission" value={`${p.commissionPct}%`} />
                   </>
                 )}
               </dl>
@@ -390,6 +457,7 @@ function ProfilesGrid({
               onView={onView}
               onApprove={onApprove}
               onDemote={onDemote}
+              onReject={onReject}
               onDelete={onDelete}
             />
           </CardContent>
@@ -404,12 +472,14 @@ function ProfilesTable({
   onView,
   onApprove,
   onDemote,
+  onReject,
   onDelete,
 }: {
   rows: Row[];
   onView: (r: Row) => void;
   onApprove: (r: Row) => void;
   onDemote: (r: Row) => void;
+  onReject: (r: Row) => void;
   onDelete: (r: Row) => void;
 }) {
   return (
@@ -435,7 +505,13 @@ function ProfilesTable({
                   <CustomerCell email={p.userEmail} name={p.userName} />
                 </TableCell>
                 <TableCell className="text-sm font-medium">
-                  {p.firstName} {p.lastName}
+                  <span className="flex items-center gap-1.5">
+                    <CurrencyFlag code={p.accountCurrency} size="sm" />
+                    {p.firstName} {p.lastName}
+                  </span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {p.accountCurrency} account
+                  </span>
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {p.senderName}
@@ -471,6 +547,7 @@ function ProfilesTable({
                     onView={onView}
                     onApprove={onApprove}
                     onDemote={onDemote}
+                    onReject={onReject}
                     onDelete={onDelete}
                     compact
                   />
@@ -490,7 +567,7 @@ function DLRow({
   mono,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   mono?: boolean;
 }) {
   return (
@@ -585,6 +662,14 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
             <Detail label="First name" value={profile.firstName} />
             <Detail label="Last name" value={profile.lastName} />
             <Detail label="Sender name" value={profile.senderName} />
+            <div className="flex items-center justify-between gap-3 py-2">
+              <dt className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
+                Requested currency
+              </dt>
+              <dd className="text-sm">
+                <CurrencyFlagLabel code={profile.accountCurrency} withName />
+              </dd>
+            </div>
             <Detail
               label="Withdrawal (USDC Base)"
               value={profile.withdrawalAddress}
@@ -598,7 +683,8 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
           <section>
             <div className="mb-1 flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Landmark className="h-3.5 w-3.5" /> Assigned USD account
+                <CurrencyFlag code={profile.accountCurrency} size="sm" />{" "}
+                Assigned {profile.accountCurrency} account
               </h3>
               {profile.transferMethod && (
                 <Badge variant="outline" className="font-mono text-[10px]">
@@ -626,6 +712,10 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
                     ? () => copy(profile.routingNumber!, "Routing number")
                     : undefined
                 }
+              />
+              <Detail
+                label="Commission fee"
+                value={`${profile.commissionPct}%`}
               />
             </dl>
           </section>
@@ -672,7 +762,11 @@ function ApproveDialog({
   profile: Row;
   onDone: () => void;
 }) {
+  const isEditing = profile.status === "APPROVED";
   const [notes, setNotes] = useState(profile.notes ?? "");
+  const [commissionPct, setCommissionPct] = useState(
+    String(profile.commissionPct ?? 0),
+  );
   const [pending, startTransition] = useTransition();
   const {
     register,
@@ -699,10 +793,18 @@ function ApproveDialog({
         id: profile.id,
         status: "APPROVED",
         notes: notes.trim() || undefined,
+        commissionPct: Math.min(
+          100,
+          Math.max(0, Math.round(Number(commissionPct) || 0)),
+        ),
         bank,
       });
       if (res.ok) {
-        toast.success("Profile approved. Customer notified.");
+        toast.success(
+          isEditing
+            ? "Profile updated. Customer notified."
+            : "Profile approved. Customer notified.",
+        );
         onDone();
       } else {
         toast.error(res.error);
@@ -713,17 +815,30 @@ function ApproveDialog({
   return (
     <DialogContent className="flex max-h-[85vh] max-w-xl flex-col gap-0 p-0">
       <DialogHeader className="border-b px-6 py-4">
-        <DialogTitle>Approve profile</DialogTitle>
+        <DialogTitle>
+          {isEditing ? "Edit bank account & commission" : "Approve profile"}
+        </DialogTitle>
         <DialogDescription>
           {profile.firstName} {profile.lastName} · {profile.userEmail}
           <br />
-          Assign a USD bank account — these details will be emailed to the customer.
+          {isEditing
+            ? "Adjust the bank details or commission rate. Updates are emailed to the customer."
+            : "Assign a bank account and commission rate — these are emailed to the customer."}
         </DialogDescription>
       </DialogHeader>
       <form
         onSubmit={onSubmit}
         className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-5"
       >
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-sm">
+          <CurrencyFlag code={profile.accountCurrency} />
+          <span>
+            Customer requested a{" "}
+            <strong>{currencyMeta(profile.accountCurrency).label}</strong>{" "}
+            account &mdash; provision the bank details below in {" "}
+            {profile.accountCurrency}.
+          </span>
+        </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="bankName">Bank name</Label>
@@ -802,6 +917,24 @@ function ApproveDialog({
               </p>
             )}
           </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="commissionPct">Commission fee</Label>
+            <Select value={commissionPct} onValueChange={setCommissionPct}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMISSION_OPTIONS.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}%{c === "0" ? " — no fee" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Applied to every transfer on this profile. You can change it later.
+            </p>
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="notes">Internal notes (optional)</Label>
@@ -819,7 +952,8 @@ function ApproveDialog({
           </Button>
           <Button variant="success" type="submit" disabled={pending}>
             {pending && <Loader2 className="animate-spin" />}
-            <Check className="h-4 w-4" /> Approve &amp; notify
+            <Check className="h-4 w-4" />{" "}
+            {isEditing ? "Save changes" : "Approve & notify"}
           </Button>
         </DialogFooter>
       </form>
@@ -879,6 +1013,65 @@ function DemoteDialog({
         <Button onClick={submit} disabled={pending}>
           {pending && <Loader2 className="animate-spin" />}
           Confirm
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function RejectDialog({
+  profile,
+  onDone,
+}: {
+  profile: Row;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState(profile.notes ?? "");
+  const [pending, startTransition] = useTransition();
+
+  const submit = () => {
+    startTransition(async () => {
+      const res = await setProfileStatus({
+        id: profile.id,
+        status: "REJECTED",
+        notes: reason.trim() || undefined,
+      });
+      if (res.ok) {
+        toast.success("Profile rejected. Customer notified.");
+        onDone();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Reject this profile</DialogTitle>
+        <DialogDescription>
+          {profile.firstName} {profile.lastName} · {profile.userEmail}
+          <br />
+          The customer will be emailed that their profile was not approved. The
+          reason below is shown to them — they can edit and resubmit.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-2">
+        <Label>Reason for rejection</Label>
+        <Textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          placeholder="e.g. Withdrawal address could not be verified — please resubmit with a valid Base address."
+        />
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onDone}>
+          <X /> Cancel
+        </Button>
+        <Button variant="destructive" onClick={submit} disabled={pending}>
+          {pending && <Loader2 className="animate-spin" />}
+          <Ban className="h-4 w-4" /> Reject profile
         </Button>
       </DialogFooter>
     </DialogContent>

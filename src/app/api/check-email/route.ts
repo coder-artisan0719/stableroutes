@@ -27,10 +27,16 @@ export async function POST(request: Request) {
   const email = parsed.data.email.toLowerCase();
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, name: true, emailVerified: true },
+    select: { id: true, name: true, emailVerified: true, blocked: true },
   });
 
-  if (!user || user.emailVerified) {
+  if (!user) {
+    return NextResponse.json({ needsVerification: false });
+  }
+  if (user.blocked) {
+    return NextResponse.json({ blocked: true });
+  }
+  if (user.emailVerified) {
     return NextResponse.json({ needsVerification: false });
   }
 

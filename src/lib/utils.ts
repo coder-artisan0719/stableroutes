@@ -36,3 +36,9 @@ export function truncateMiddle(value: string, head = 6, tail = 4) {
   if (value.length <= head + tail) return value;
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
+
+/** Splits a gross amount into commission fee + net, given a whole-percent rate. */
+export function commissionBreakdown(amountCents: number, pct: number) {
+  const feeCents = Math.round((amountCents * pct) / 100);
+  return { feeCents, netCents: amountCents - feeCents };
+}

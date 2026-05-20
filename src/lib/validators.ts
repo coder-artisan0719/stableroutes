@@ -49,12 +49,13 @@ const evmAddress = z
   .string()
   .regex(/^0x[a-fA-F0-9]{40}$/, "Enter a valid Base (EVM) address");
 
-// Customer creates a profile: full name + sender + withdrawal address. Bank
-// details come later from admin at approval time.
+// Customer creates a profile: full name + sender + account currency +
+// withdrawal address. Bank details come later from admin at approval time.
 export const profileSchema = z.object({
   firstName: z.string().min(1, "First name is required").max(60),
   lastName: z.string().min(1, "Last name is required").max(60),
   senderName: z.string().min(1, "Sender name is required").max(120),
+  accountCurrency: z.enum(["USD", "EUR", "GBP", "CAD"]),
   withdrawalAddress: evmAddress,
 });
 
@@ -62,7 +63,7 @@ export const profileSchema = z.object({
 export const profilePendingUpdateSchema = profileSchema.partial();
 
 // Customer edit on an APPROVED profile: only sender + withdrawal address.
-// Full name and bank details are locked.
+// Full name, account currency, and bank details are locked.
 export const profileApprovedUpdateSchema = z.object({
   senderName: z.string().min(1, "Sender name is required").max(120).optional(),
   withdrawalAddress: evmAddress.optional(),
@@ -94,11 +95,19 @@ export const transactionCreateSchema = z.object({
 });
 
 // Admin-side create: same fields plus an optional internal note + optional
-// scheduled-for datetime. If `scheduledFor` is in the future the status is
+// scheduled-for datetime. The commission rate is inherited from the profile,
+// not set per transaction. If `scheduledFor` is in the future the status is
 // stored as SCHEDULED; otherwise it's an immediate PENDING.
 export const adminTransactionCreateSchema = transactionCreateSchema.extend({
   adminNote: z.string().max(500).optional(),
   scheduledFor: z.coerce.date().optional(),
+});
+
+// Admin blocks / unblocks a customer account.
+export const blockCustomerSchema = z.object({
+  id: z.string().min(1),
+  blocked: z.boolean(),
+  reason: z.string().max(500).optional(),
 });
 export type AdminTransactionCreateInput = z.infer<
   typeof adminTransactionCreateSchema
@@ -118,16 +127,23 @@ export const transactionStatusSchema = z.object({
 });
 
 // Admin moves a profile to APPROVED → bank details required.
-// Admin moves a profile back to PENDING → bank details optional (notes only).
+// Admin moves a profile to PENDING or REJECTED → notes only (REJECTED notes
+// double as the reason shown to the customer).
 export const profileApprovalSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("APPROVED"),
     id: z.string().min(1),
     notes: z.string().max(500).optional(),
+    commissionPct: z.number().int().min(0).max(100),
     bank: bankDetailsSchema,
   }),
   z.object({
     status: z.literal("PENDING"),
+    id: z.string().min(1),
+    notes: z.string().max(500).optional(),
+  }),
+  z.object({
+    status: z.literal("REJECTED"),
     id: z.string().min(1),
     notes: z.string().max(500).optional(),
   }),

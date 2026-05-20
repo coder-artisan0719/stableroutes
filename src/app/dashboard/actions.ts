@@ -27,6 +27,20 @@ export async function createProfile(input: unknown) {
   if (!parsed.success) {
     return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
+
+  // Guard against a stale session whose user row no longer exists — otherwise
+  // the create below fails with a raw foreign-key error.
+  const customer = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true },
+  });
+  if (!customer) {
+    return {
+      ok: false as const,
+      error: "Your session is no longer valid. Please sign out and sign in again.",
+    };
+  }
+
   const profile = await prisma.customerProfile.create({
     data: {
       userId,
@@ -35,13 +49,7 @@ export async function createProfile(input: unknown) {
   });
 
   // Notify admins that a new profile is waiting for review.
-  const customer = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { email: true, name: true },
-  });
-  if (customer) {
-    void sendAdminNewProfileEmail({ profile, customer });
-  }
+  void sendAdminNewProfileEmail({ profile, customer });
 
   revalidatePath("/dashboard/profiles");
   revalidatePath("/dashboard");
@@ -56,7 +64,8 @@ export async function updateProfile(id: string, input: unknown) {
   }
 
   // Approved profiles: only senderName + withdrawalAddress are editable.
-  // Pending profiles: full edit allowed.
+  // Pending / rejected profiles: full edit allowed. Editing a rejected
+  // profile resubmits it — status returns to PENDING and the reason clears.
   if (existing.status === "APPROVED") {
     const parsed = profileApprovedUpdateSchema.safeParse(input);
     if (!parsed.success) {
@@ -79,7 +88,12 @@ export async function updateProfile(id: string, input: unknown) {
     }
     await prisma.customerProfile.update({
       where: { id },
-      data: parsed.data,
+      data: {
+        ...parsed.data,
+        ...(existing.status === "REJECTED"
+          ? { status: "PENDING" as const, notes: null }
+          : {}),
+      },
     });
   }
 

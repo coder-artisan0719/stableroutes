@@ -13,9 +13,11 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+export type ProfileStatusFilter = "PENDING" | "APPROVED" | "REJECTED";
+
 export type ProfilesQuery = {
   q: string;
-  status?: "PENDING" | "APPROVED";
+  status?: ProfileStatusFilter;
   sort: "newest" | "oldest" | "name";
   view: "grid" | "table";
 };
@@ -25,7 +27,7 @@ export function ProfilesToolbar({
   counts,
 }: {
   query: ProfilesQuery;
-  counts: { all: number; pending: number; approved: number };
+  counts: { all: number; pending: number; approved: number; rejected: number };
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -59,6 +61,7 @@ export function ProfilesToolbar({
     { key: "all", label: "All", count: counts.all },
     { key: "PENDING", label: "Pending", count: counts.pending },
     { key: "APPROVED", label: "Approved", count: counts.approved },
+    { key: "REJECTED", label: "Rejected", count: counts.rejected },
   ] as const;
 
   return (
@@ -74,7 +77,10 @@ export function ProfilesToolbar({
               type="button"
               onClick={() =>
                 push({
-                  status: t.key === "all" ? undefined : (t.key as "PENDING" | "APPROVED"),
+                  status:
+                    t.key === "all"
+                      ? undefined
+                      : (t.key as ProfileStatusFilter),
                 })
               }
               className={cn(

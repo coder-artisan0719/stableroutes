@@ -24,6 +24,7 @@ export function LoginForm({
   verified,
   expired,
   reset,
+  blocked,
   prefillEmail,
 }: {
   callbackUrl?: string;
@@ -31,11 +32,16 @@ export function LoginForm({
   verified?: boolean;
   expired?: boolean;
   reset?: boolean;
+  blocked?: boolean;
   prefillEmail?: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(
-    initialError === "CredentialsSignin" ? "Invalid email or password." : null,
+    initialError === "CredentialsSignin"
+      ? "Invalid email or password."
+      : blocked
+        ? "This account has been suspended. Check your email or contact support."
+        : null,
   );
   const [pending, startTransition] = useTransition();
 
@@ -57,8 +63,7 @@ export function LoginForm({
         redirect: false,
       });
       if (res?.error) {
-        // signIn failed — was it because the email isn't verified, or wrong
-        // password? Ask the server. (Also reissues a fresh code if unverified.)
+        // signIn failed — distinguish blocked / unverified / wrong-password.
         try {
           const check = await fetch("/api/check-email", {
             method: "POST",
@@ -66,6 +71,12 @@ export function LoginForm({
             body: JSON.stringify({ email: data.email }),
           });
           const body = await check.json().catch(() => ({}));
+          if (body?.blocked) {
+            setError(
+              "This account has been suspended. Check your email or contact support.",
+            );
+            return;
+          }
           if (body?.needsVerification) {
             toast.message("Please verify your email — we sent a fresh code.");
             router.replace(

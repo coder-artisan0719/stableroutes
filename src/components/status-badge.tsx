@@ -46,6 +46,13 @@ export function ProfileStatusBadge({ status }: { status: ProfileStatus }) {
       </Badge>
     );
   }
+  if (status === "REJECTED") {
+    return (
+      <Badge variant="destructive">
+        <ShieldAlert className="h-3 w-3" /> Rejected
+      </Badge>
+    );
+  }
   return (
     <Badge variant="warning">
       <ShieldAlert className="h-3 w-3" /> Pending review

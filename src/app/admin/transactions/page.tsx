@@ -45,6 +45,7 @@ export default async function AdminTransactionsPage({
         lastName: true,
         senderName: true,
         transferMethod: true,
+        commissionPct: true,
         user: { select: { email: true, name: true } },
       },
     }),
@@ -76,6 +77,7 @@ export default async function AdminTransactionsPage({
           lastName: p.lastName,
           senderName: p.senderName,
           transferMethod: p.transferMethod,
+          commissionPct: p.commissionPct,
           userEmail: p.user.email,
           userName: p.user.name,
         }))}

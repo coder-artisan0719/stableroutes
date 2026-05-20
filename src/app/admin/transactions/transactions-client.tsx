@@ -68,6 +68,7 @@ export type ApprovedProfile = {
   lastName: string;
   senderName: string;
   transferMethod: "ACH" | "WIRE" | "BOTH" | null;
+  commissionPct: number;
   userEmail: string;
   userName: string | null;
 };
@@ -383,6 +384,7 @@ function NewPaymentDialog({
   });
   const profileId = watch("profileId");
   const type = watch("type");
+  const amountWatch = watch("amount");
 
   const selected = useMemo(
     () => profiles.find((p) => p.id === profileId) ?? null,
@@ -396,6 +398,15 @@ function NewPaymentDialog({
     if (selected.transferMethod === "WIRE") return ["WIRE"];
     return ["ACH", "WIRE"];
   }, [selected]);
+
+  // Commission is the selected profile's rate — preview the fee/net.
+  const preview = useMemo(() => {
+    const amt = Number(amountWatch);
+    const pct = selected?.commissionPct ?? 0;
+    if (!Number.isFinite(amt) || amt <= 0) return null;
+    const fee = (amt * pct) / 100;
+    return { pct, fee, net: amt - fee };
+  }, [amountWatch, selected]);
 
   const onSubmit = handleSubmit((data) => {
     const amountNum = Number(data.amount);
@@ -489,13 +500,14 @@ function NewPaymentDialog({
           </Select>
           {selected && (
             <p className="text-xs text-muted-foreground">
-              Sender on profile: <strong>{selected.senderName}</strong> &middot;
-              accepts{" "}
+              Sender: <strong>{selected.senderName}</strong> &middot; accepts{" "}
               <strong>
                 {selected.transferMethod === "BOTH"
                   ? "ACH + Wire"
                   : (selected.transferMethod ?? "—")}
-              </strong>
+              </strong>{" "}
+              &middot; commission{" "}
+              <strong>{selected.commissionPct}%</strong>
             </p>
           )}
         </div>
@@ -537,6 +549,20 @@ function NewPaymentDialog({
             </Select>
           </div>
         </div>
+
+        {preview && preview.pct > 0 && (
+          <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+            Commission <strong>{preview.pct}%</strong> (from the profile) ·
+            fee{" "}
+            <strong className="text-foreground">
+              ${preview.fee.toFixed(2)}
+            </strong>{" "}
+            · customer nets{" "}
+            <strong className="text-foreground">
+              ${preview.net.toFixed(2)}
+            </strong>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="senderName">Sender name</Label>

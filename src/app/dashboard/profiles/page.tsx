@@ -6,7 +6,7 @@ import { ProfilesClient } from "./profiles-client";
 
 export const metadata = { title: "Profiles" };
 
-const ALLOWED_STATUS = ["PENDING", "APPROVED"] as const;
+const ALLOWED_STATUS = ["PENDING", "APPROVED", "REJECTED"] as const;
 const ALLOWED_SORT = ["newest", "oldest", "name"] as const;
 const ALLOWED_VIEW = ["grid", "table"] as const;
 
@@ -82,6 +82,7 @@ export default async function ProfilesPage({
     all: statusCounts.reduce((sum, c) => sum + c._count, 0),
     pending: statusCounts.find((c) => c.status === "PENDING")?._count ?? 0,
     approved: statusCounts.find((c) => c.status === "APPROVED")?._count ?? 0,
+    rejected: statusCounts.find((c) => c.status === "REJECTED")?._count ?? 0,
   };
 
   return (

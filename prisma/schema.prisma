@@ -24,6 +24,7 @@ enum UserRole {
 enum ProfileStatus {
   PENDING
   APPROVED
+  REJECTED
 }
 
 enum TransactionStatus {
@@ -45,6 +46,14 @@ enum TransferMethod {
   BOTH
 }
 
+/// Currency of the bank account a customer requests for a profile.
+enum AccountCurrency {
+  USD
+  EUR
+  GBP
+  CAD
+}
+
 enum NotificationChannel {
   EMAIL
 }
@@ -63,6 +72,12 @@ model User {
   name          String?
   image         String?
   twoFactor     Boolean   @default(false)
+
+  // Account suspension (e.g. for fraud). Blocked users cannot sign in.
+  blocked       Boolean   @default(false)
+  blockedReason String?
+  blockedAt     DateTime?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -123,6 +138,8 @@ model CustomerProfile {
   firstName         String
   lastName          String
   senderName        String
+  /// Bank account currency the customer requested for this profile.
+  accountCurrency   AccountCurrency @default(USD)
   /// USDC (Base) withdrawal address — destination of settled funds.
   withdrawalAddress String
   status            ProfileStatus @default(PENDING)
@@ -136,6 +153,9 @@ model CustomerProfile {
   bankName       String?
   bankAddress    String?
   transferMethod TransferMethod?
+  /// Commission fee for this profile, as a whole percent. Set at approval,
+  /// editable by admin anytime. New transactions snapshot this rate.
+  commissionPct  Int             @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -155,6 +175,8 @@ model Transaction {
   profileId     String
   amountCents   Int
   currency      String            @default("USD")
+  /// Commission fee applied to this transfer, as a whole percent (e.g. 5 = 5%).
+  commissionPct Int               @default(0)
   type          TransactionType
   status        TransactionStatus @default(PENDING)
   senderName    String

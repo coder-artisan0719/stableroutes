@@ -39,11 +39,25 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { PageSizeSelector } from "@/components/ui/page-size";
 import type { PageSize } from "@/lib/page-size";
 import { useRouter } from "next/navigation";
 import { ProfileStatusBadge } from "@/components/status-badge";
+import {
+  ACCOUNT_CURRENCIES,
+  CurrencyFlag,
+  CurrencyFlagLabel,
+  currencyMeta,
+  type AccountCurrency,
+} from "@/components/currency-flag";
 import { profileSchema, type ProfileInput } from "@/lib/validators";
 import { cn, formatDate, truncateMiddle } from "@/lib/utils";
 import { createProfile, deleteProfile, updateProfile } from "../actions";
@@ -51,7 +65,7 @@ import { ProfilesToolbar, type ProfilesQuery } from "./profiles-toolbar";
 
 type ResolvedQuery = {
   q: string;
-  status?: "PENDING" | "APPROVED";
+  status?: "PENDING" | "APPROVED" | "REJECTED";
   sort: "newest" | "oldest" | "name";
   view: "grid" | "table";
 };
@@ -70,7 +84,7 @@ export function ProfilesClient({
   page: number;
   totalPages: number;
   pageSize: PageSize;
-  counts: { all: number; pending: number; approved: number };
+  counts: { all: number; pending: number; approved: number; rejected: number };
   query: ResolvedQuery;
 }) {
   const router = useRouter();
@@ -246,8 +260,9 @@ function ProfileCard({
             <CardTitle className="truncate">
               {profile.firstName} {profile.lastName}
             </CardTitle>
-            <CardDescription className="truncate">
-              Sender: {profile.senderName}
+            <CardDescription className="flex items-center gap-1.5 truncate">
+              <CurrencyFlag code={profile.accountCurrency} size="sm" />
+              {profile.accountCurrency} · Sender: {profile.senderName}
             </CardDescription>
           </div>
           <ProfileStatusBadge status={profile.status} />
@@ -258,7 +273,8 @@ function ProfileCard({
           <div className="rounded-lg border bg-muted/30 p-3">
             <div className="mb-2 flex items-center justify-between">
               <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                <Landmark className="h-3.5 w-3.5" /> Your USD account
+                <CurrencyFlag code={profile.accountCurrency} size="sm" /> Your{" "}
+                {profile.accountCurrency} account
               </p>
               {profile.transferMethod && (
                 <Badge variant="outline" className="font-mono text-[10px]">
@@ -467,11 +483,12 @@ function ProfilesTable({
                     {initialsOf(p)}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate font-medium">
+                    <p className="flex items-center gap-1.5 truncate font-medium">
+                      <CurrencyFlag code={p.accountCurrency} size="sm" />
                       {p.firstName} {p.lastName}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      Sender: {p.senderName}
+                      {p.accountCurrency} account · Sender: {p.senderName}
                     </p>
                   </div>
                 </div>
@@ -517,7 +534,9 @@ function ProfilesTable({
                     </div>
                   ) : (
                     <span className="text-sm text-muted-foreground">
-                      Pending approval
+                      {p.status === "REJECTED"
+                        ? "Not approved"
+                        : "Pending approval"}
                     </span>
                   )}
                 </div>
@@ -627,6 +646,7 @@ function ProfileViewDialog({
   );
 
   const isApproved = profile.status === "APPROVED";
+  const isRejected = profile.status === "REJECTED";
 
   return (
     <DialogContent className="flex max-h-[85vh] max-w-lg flex-col gap-0 p-0">
@@ -636,13 +656,32 @@ function ProfileViewDialog({
             <DialogTitle className="text-xl">
               {profile.firstName} {profile.lastName}
             </DialogTitle>
-            <DialogDescription>Sender: {profile.senderName}</DialogDescription>
+            <DialogDescription className="flex items-center gap-1.5">
+              <CurrencyFlag code={profile.accountCurrency} size="sm" />
+              {profile.accountCurrency} account · Sender: {profile.senderName}
+            </DialogDescription>
           </div>
           <ProfileStatusBadge status={profile.status} />
         </div>
       </DialogHeader>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+        {isRejected && (
+          <section className="rounded-lg border border-destructive/40 bg-destructive/10 p-4">
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-destructive">
+              <Lock className="h-3.5 w-3.5" /> Profile not approved
+            </h3>
+            <p className="mt-1.5 text-sm text-foreground">
+              {profile.notes
+                ? profile.notes
+                : "This profile was not approved. Edit the details below and resubmit it for review."}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Editing this profile resubmits it for review.
+            </p>
+          </section>
+        )}
+
         <section>
           <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Profile
@@ -650,6 +689,14 @@ function ProfileViewDialog({
           <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
             <Detail label="Full name" value={`${profile.firstName} ${profile.lastName}`} />
             <Detail label="Sender name" value={profile.senderName} />
+            <div className="flex items-center justify-between gap-3 py-2">
+              <dt className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
+                Account currency
+              </dt>
+              <dd className="text-sm">
+                <CurrencyFlagLabel code={profile.accountCurrency} withName />
+              </dd>
+            </div>
             <Detail
               label="Withdrawal (USDC Base)"
               value={profile.withdrawalAddress}
@@ -663,7 +710,8 @@ function ProfileViewDialog({
           <section>
             <div className="mb-1 flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Landmark className="h-3.5 w-3.5" /> Your USD account
+                <CurrencyFlag code={profile.accountCurrency} size="sm" /> Your{" "}
+                {profile.accountCurrency} account
               </h3>
               {profile.transferMethod && (
                 <Badge variant="outline" className="font-mono text-[10px]">
@@ -692,6 +740,10 @@ function ProfileViewDialog({
                     : undefined
                 }
               />
+              <Detail
+                label="Commission fee"
+                value={`${profile.commissionPct}%`}
+              />
             </dl>
             <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
               <Lock className="mt-0.5 h-3 w-3" />
@@ -704,7 +756,9 @@ function ProfileViewDialog({
         ) : (
           <section className="rounded-lg border border-dashed bg-muted/20 p-4 text-center">
             <Lock className="mx-auto h-5 w-5 text-muted-foreground" />
-            <p className="mt-2 text-sm font-medium">USD account not assigned yet</p>
+            <p className="mt-2 text-sm font-medium">
+              {profile.accountCurrency} account not assigned yet
+            </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Your bank details will appear here once an admin approves this
               profile.
@@ -738,6 +792,8 @@ function ProfileDialog({
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors },
     reset,
   } = useForm<ProfileInput>({
@@ -747,10 +803,12 @@ function ProfileDialog({
           firstName: profile.firstName,
           lastName: profile.lastName,
           senderName: profile.senderName,
+          accountCurrency: profile.accountCurrency,
           withdrawalAddress: profile.withdrawalAddress,
         }
-      : undefined,
+      : { accountCurrency: "USD" },
   });
+  const accountCurrency = watch("accountCurrency") ?? "USD";
 
   const onSubmit = handleSubmit((data) => {
     startTransition(async () => {
@@ -784,7 +842,9 @@ function ProfileDialog({
             ? "Your profile will be reviewed by our team and approved before activation."
             : isApproved
               ? "Your profile is approved. You can update the sender name and withdrawal address. Contact support to change the name on the account."
-              : "Your profile is still under review — you can edit any field."}
+              : profile.status === "REJECTED"
+                ? "This profile was not approved. Fix the details below and save to resubmit it for review."
+                : "Your profile is still under review — you can edit any field."}
         </DialogDescription>
       </DialogHeader>
       <form onSubmit={onSubmit} className="space-y-4">
@@ -820,6 +880,35 @@ function ProfileDialog({
           {errors.senderName && (
             <p className="text-xs text-destructive">{errors.senderName.message}</p>
           )}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="accountCurrency" className="flex items-center gap-1.5">
+            Bank account currency{" "}
+            {isApproved && <Lock className="h-3 w-3 text-muted-foreground" />}
+          </Label>
+          <Select
+            value={accountCurrency}
+            disabled={isApproved}
+            onValueChange={(v) =>
+              setValue("accountCurrency", v as AccountCurrency, {
+                shouldValidate: true,
+              })
+            }
+          >
+            <SelectTrigger id="accountCurrency">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ACCOUNT_CURRENCIES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  <span className="flex items-center gap-2">
+                    <CurrencyFlag code={c} />
+                    {c} · {currencyMeta(c).label}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="withdrawalAddress">Withdrawal address (USDC on Base)</Label>

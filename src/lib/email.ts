@@ -7,6 +7,7 @@ import {
   verificationCodeEmail,
   passwordResetEmail,
   adminNewProfileEmail,
+  accountStatusEmail,
 } from "@/lib/email-templates";
 import { CODE_TTL_MINUTES } from "@/lib/verification";
 import type { Transaction, CustomerProfile } from "@prisma/client";
@@ -179,6 +180,25 @@ export async function sendAdminNewProfileEmail(args: {
       html,
     });
   }
+}
+
+export async function sendAccountStatusEmail(args: {
+  user: { id: string; email: string; name: string | null };
+  blocked: boolean;
+  reason?: string | null;
+}) {
+  return send({
+    userId: args.user.id,
+    to: args.user.email,
+    subject: args.blocked
+      ? "Your StableRoute account has been suspended"
+      : "Your StableRoute account has been reinstated",
+    html: accountStatusEmail({
+      name: args.user.name ?? "there",
+      blocked: args.blocked,
+      reason: args.reason,
+    }),
+  });
 }
 
 export async function sendProfileStatusEmail(args: {

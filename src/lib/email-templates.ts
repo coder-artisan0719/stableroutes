@@ -8,10 +8,38 @@ const formatUSD = (cents: number) =>
     cents / 100,
   );
 
+// Banner color per email tone — solid color + gradient enhancement.
+type BannerTone = "gold" | "green" | "red" | "blue";
+
+const BANNER: Record<BannerTone, { solid: string; gradient: string }> = {
+  gold: {
+    solid: "#b45309",
+    gradient: "linear-gradient(135deg,#b45309 0%,#f59e0b 60%,#fbbf24 100%)",
+  },
+  green: {
+    solid: "#15803d",
+    gradient: "linear-gradient(135deg,#166534 0%,#16a34a 60%,#22c55e 100%)",
+  },
+  red: {
+    solid: "#b91c1c",
+    gradient: "linear-gradient(135deg,#991b1b 0%,#dc2626 60%,#ef4444 100%)",
+  },
+  blue: {
+    solid: "#1d4ed8",
+    gradient: "linear-gradient(135deg,#1e40af 0%,#2563eb 60%,#3b82f6 100%)",
+  },
+};
+
 // Email-safe, table-based layout. Inline styles only; solid colors with
 // gradient enhancement (Outlook ignores gradients and falls back gracefully).
-function shell(title: string, body: string, cta?: { label: string; href: string }) {
+function shell(
+  title: string,
+  body: string,
+  cta?: { label: string; href: string },
+  tone: BannerTone = "gold",
+) {
   const year = new Date().getFullYear();
+  const banner = BANNER[tone];
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -49,8 +77,8 @@ function shell(title: string, body: string, cta?: { label: string; href: string 
 
             <!-- BANNER -->
             <tr>
-              <td style="background-color:#b45309;background:linear-gradient(135deg,#b45309 0%,#f59e0b 60%,#fbbf24 100%);padding:34px 32px;">
-                <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#fde68a;">${APP_NAME}</div>
+              <td style="background-color:${banner.solid};background:${banner.gradient};padding:34px 32px;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.72);">${APP_NAME}</div>
                 <div style="margin-top:8px;font-size:23px;line-height:1.3;font-weight:700;color:#ffffff;">${title}</div>
               </td>
             </tr>
@@ -208,22 +236,84 @@ export function transactionStatusEmail({
         )
       : "";
 
+  // For a settled transfer, show the amount the customer actually received
+  // (after the commission fee) — not the original gross amount.
+  const feeCents = Math.round(
+    (transaction.amountCents * transaction.commissionPct) / 100,
+  );
+  const netCents = transaction.amountCents - feeCents;
+  const isCompleted = transaction.status === "COMPLETED";
+
+  const amountRows = isCompleted
+    ? (transaction.commissionPct > 0
+        ? row(
+            "Commission",
+            `${transaction.commissionPct}% (−${formatUSD(feeCents)})`,
+          )
+        : "") + row("Amount settled", formatUSD(netCents))
+    : row("Amount", formatUSD(transaction.amountCents));
+
   const body = `
     <p>Hi ${name},</p>
     <p>${statusLine}</p>
     <table style="width:100%;border-collapse:collapse;margin-top:16px;border-top:1px solid #e2e8f0;">
       ${row("Reference", transaction.reference)}
       ${row("Type", transaction.type)}
-      ${row("Amount", formatUSD(transaction.amountCents))}
+      ${amountRows}
       ${row("Status", transaction.status)}
       ${row("Sender", transaction.senderName)}
       ${scheduledRow}
       ${hashRow}
     </table>`;
-  return shell(`Transfer ${transaction.status.toLowerCase()}`, body, {
-    label: "View transaction",
-    href: `${APP_URL}/dashboard/transactions`,
-  });
+
+  const tone: BannerTone =
+    transaction.status === "COMPLETED"
+      ? "green"
+      : transaction.status === "REFUNDED"
+        ? "red"
+        : transaction.status === "SCHEDULED"
+          ? "blue"
+          : "gold";
+
+  return shell(
+    `Transfer ${transaction.status.toLowerCase()}`,
+    body,
+    { label: "View transaction", href: `${APP_URL}/dashboard/transactions` },
+    tone,
+  );
+}
+
+export function accountStatusEmail({
+  name,
+  blocked,
+  reason,
+}: {
+  name: string;
+  blocked: boolean;
+  reason?: string | null;
+}) {
+  if (blocked) {
+    return shell(
+      "Your account has been suspended",
+      `<p>Hi ${name},</p>
+       <p>Your ${APP_NAME} account has been suspended${
+         reason ? ` for the following reason: <strong>${reason}</strong>` : ""
+       }.</p>
+       <p>While your account is suspended you won't be able to sign in or access
+       your dashboard, and no transfers will be processed. If you believe this
+       was done in error, please contact our support team.</p>`,
+      { label: "Contact support", href: `${APP_URL}/contact` },
+      "red",
+    );
+  }
+  return shell(
+    "Your account has been reinstated",
+    `<p>Hi ${name},</p>
+     <p>Good news — your ${APP_NAME} account has been reinstated. You can sign
+     in again and resume using your dashboard.</p>`,
+    { label: "Sign in", href: `${APP_URL}/login` },
+    "green",
+  );
 }
 
 export function adminNewProfileEmail({
@@ -259,7 +349,11 @@ export function profileStatusEmail({
   const statusLine =
     profile.status === "APPROVED"
       ? `Your profile is approved. Share the bank details below with senders to receive ACH or Wire deposits — settled funds will be routed to your USDC (Base) address.`
-      : `Your profile is under review. We'll notify you once it's approved.`;
+      : profile.status === "REJECTED"
+        ? `Your profile was not approved.${
+            profile.notes ? ` Reason: <strong>${profile.notes}</strong>.` : ""
+          } You can edit the profile and resubmit it for review.`
+        : `Your profile is under review. We'll notify you once it's approved.`;
 
   const bankBlock =
     profile.status === "APPROVED" && profile.accountNumber
@@ -285,8 +379,18 @@ export function profileStatusEmail({
       ${row("Status", profile.status)}
     </table>
     ${bankBlock}`;
-  return shell(`Profile ${profile.status.toLowerCase()}`, body, {
-    label: "View profiles",
-    href: `${APP_URL}/dashboard/profiles`,
-  });
+
+  const tone: BannerTone =
+    profile.status === "APPROVED"
+      ? "green"
+      : profile.status === "REJECTED"
+        ? "red"
+        : "gold";
+
+  return shell(
+    `Profile ${profile.status.toLowerCase()}`,
+    body,
+    { label: "View profiles", href: `${APP_URL}/dashboard/profiles` },
+    tone,
+  );
 }

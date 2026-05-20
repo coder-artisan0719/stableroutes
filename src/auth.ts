@@ -58,10 +58,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const ok = await bcrypt.compare(parsed.data.password, user.passwordHash);
         if (!ok) return null;
 
-        // Block unverified email accounts at the credentials gate.
-        // We return null (instead of throwing) so the failure surfaces as a
-        // standard CredentialsSignin. The login form then calls
-        // /api/check-email to distinguish "unverified" from "wrong password".
+        // Suspended (e.g. fraud) and unverified accounts are rejected here.
+        // We return null (not throw) so it surfaces as a standard
+        // CredentialsSignin; the login form calls /api/check-email to tell
+        // "blocked" / "unverified" / "wrong password" apart.
+        if (user.blocked) return null;
         if (!user.emailVerified) return null;
 
         return {
@@ -76,6 +77,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     ...authConfig.callbacks,
     async signIn({ user, account }) {
+      // Reject suspended accounts regardless of provider.
+      if (user?.email) {
+        const dbUser = await prisma.user.findUnique({
+          where: { email: user.email.toLowerCase() },
+          select: { blocked: true },
+        });
+        if (dbUser?.blocked) return false;
+      }
       // OAuth providers are inherently email-verified by the IdP — allow through
       // and stamp emailVerified if missing so the credentials gate also clears.
       if (account?.provider && account.provider !== "credentials") {
@@ -84,12 +93,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             where: { email: user.email.toLowerCase() },
             data: {
               emailVerified: new Date(),
-              // Ensure name is populated from Google profile if missing.
               name: user.name ?? undefined,
             },
           });
         }
-        return true;
       }
       return true;
     },

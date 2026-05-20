@@ -20,6 +20,7 @@ export default function LoginPage({
     email?: string;
     expired?: string;
     reset?: string;
+    blocked?: string;
   };
 }) {
   return (
@@ -35,6 +36,7 @@ export default function LoginPage({
           verified={searchParams.verified === "1"}
           expired={searchParams.expired === "1"}
           reset={searchParams.reset === "1"}
+          blocked={searchParams.blocked === "1"}
           prefillEmail={searchParams.email}
         />
         <p className="mt-6 text-center text-sm text-muted-foreground">
