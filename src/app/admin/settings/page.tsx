@@ -1,0 +1,43 @@
+import { requireAdmin } from "@/lib/auth-guards";
+import { prisma } from "@/lib/prisma";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { SettingsForms } from "@/app/dashboard/settings/settings-forms";
+
+export const metadata = { title: "Admin settings" };
+
+export default async function AdminSettingsPage() {
+  const session = await requireAdmin();
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { id: true, email: true, name: true },
+  });
+  if (!user) throw new Error("User not found");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-display text-3xl font-bold tracking-tight">Settings</h1>
+        <p className="mt-1 text-muted-foreground">
+          Manage your admin account credentials.
+        </p>
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Account</CardTitle>
+          <CardDescription>
+            Same controls as customers, scoped to the admin user.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SettingsForms user={{ id: user.id, name: user.name, email: user.email }} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme — clean near-white background so the deep gold accent
+       reads with strong contrast. */
+    --background: 40 18% 98%;
+    --foreground: 36 20% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 36 20% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 36 20% 12%;
+    --primary: 40 82% 37%;
+    --primary-foreground: 45 55% 98%;
+    --secondary: 40 14% 95%;
+    --secondary-foreground: 36 20% 12%;
+    --muted: 40 14% 95.5%;
+    --muted-foreground: 38 9% 41%;
+    --accent: 40 32% 92%;
+    --accent-foreground: 36 20% 12%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 60% 35%;
+    --success-foreground: 0 0% 100%;
+    --warning: 27 88% 47%;
+    --warning-foreground: 0 0% 100%;
+    --border: 40 13% 88%;
+    --input: 40 13% 88%;
+    --ring: 40 82% 37%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    /* Dark theme — warm charcoal background, bright gold primary. */
+    --background: 36 14% 8%;
+    --foreground: 44 28% 94%;
+    --card: 36 13% 11%;
+    --card-foreground: 44 28% 94%;
+    --popover: 36 13% 11%;
+    --popover-foreground: 44 28% 94%;
+    --primary: 44 88% 56%;
+    --primary-foreground: 36 40% 9%;
+    --secondary: 36 10% 18%;
+    --secondary-foreground: 44 28% 94%;
+    --muted: 36 10% 15%;
+    --muted-foreground: 42 12% 62%;
+    --accent: 36 11% 19%;
+    --accent-foreground: 44 28% 94%;
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 55% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 30 90% 55%;
+    --warning-foreground: 36 40% 9%;
+    --border: 36 10% 20%;
+    --input: 36 10% 20%;
+    --ring: 44 88% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .gradient-text {
+    @apply bg-gradient-to-r from-amber-700 via-amber-600 to-yellow-600 bg-clip-text text-transparent;
+  }
+
+  .dark .gradient-text {
+    @apply bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-300 bg-clip-text text-transparent;
+  }
+  .gradient-bg {
+    background: radial-gradient(
+        ellipse 80% 50% at 50% -20%,
+        hsl(var(--primary) / 0.18),
+        transparent
+      ),
+      hsl(var(--background));
+  }
+  .grid-pattern {
+    background-image:
+      linear-gradient(to right, hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+}

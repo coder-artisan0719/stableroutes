@@ -1,0 +1,196 @@
+// StableRoute Prisma schema
+// Custom-named USD bank for ACH + Wire transfers, settled to USDC (Base)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Used by `prisma migrate` / `db push` — must be the non-pooled (direct) URL.
+  directUrl = env("DIRECT_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  CUSTOMER
+}
+
+enum ProfileStatus {
+  PENDING
+  APPROVED
+}
+
+enum TransactionStatus {
+  SCHEDULED
+  PENDING
+  COMPLETED
+  REFUNDED
+}
+
+enum TransactionType {
+  ACH
+  WIRE
+}
+
+/// Which methods the bank account assigned to a profile accepts.
+enum TransferMethod {
+  ACH
+  WIRE
+  BOTH
+}
+
+enum NotificationChannel {
+  EMAIL
+}
+
+// -----------------------------------------------------------------------------
+// Auth (NextAuth + custom fields)
+// -----------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  /// Nullable — OAuth-only accounts (e.g. Google sign-in) won't have one.
+  passwordHash  String?
+  role          UserRole  @default(CUSTOMER)
+  name          String?
+  image         String?
+  twoFactor     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profiles     CustomerProfile[]
+  transactions Transaction[]
+  sessions     Session[]
+  accounts     Account[]
+  notifications Notification[]
+
+  @@index([role])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// -----------------------------------------------------------------------------
+// Domain
+// -----------------------------------------------------------------------------
+
+/// A customer's named bank profile. A customer may have multiple profiles.
+/// Bank details (accountNumber, routingNumber, bankName, bankAddress, transferMethod)
+/// are assigned by an admin at approval time — they're not editable by the customer.
+model CustomerProfile {
+  id                String        @id @default(cuid())
+  userId            String
+  firstName         String
+  lastName          String
+  senderName        String
+  /// USDC (Base) withdrawal address — destination of settled funds.
+  withdrawalAddress String
+  status            ProfileStatus @default(PENDING)
+  notes             String?
+  approvedAt        DateTime?
+  approvedById      String?
+
+  // Bank details (admin-assigned at approval)
+  accountNumber  String?
+  routingNumber  String?
+  bankName       String?
+  bankAddress    String?
+  transferMethod TransferMethod?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+/// A single ACH or Wire deposit, ultimately settled to the profile's withdrawal address.
+model Transaction {
+  id            String            @id @default(cuid())
+  reference     String            @unique @default(cuid())
+  userId        String
+  profileId     String
+  amountCents   Int
+  currency      String            @default("USD")
+  type          TransactionType
+  status        TransactionStatus @default(PENDING)
+  senderName    String
+  description   String?
+  adminNote     String?
+  refundReason  String?
+  /// On-chain transaction hash for the USDC settlement on Base (set when COMPLETED).
+  txHash        String?
+  /// When the transfer is scheduled to be processed (only set when status = SCHEDULED).
+  scheduledFor  DateTime?
+  completedAt   DateTime?
+  refundedAt    DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CustomerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([profileId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  channel   NotificationChannel @default(EMAIL)
+  subject   String
+  body      String              @db.Text
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime            @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sentAt])
+}
