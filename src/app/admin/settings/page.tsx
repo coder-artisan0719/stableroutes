@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SettingsForms } from "@/app/dashboard/settings/settings-forms";
+import { TwoFactorSection } from "@/app/dashboard/settings/two-factor-section";
 
 export const metadata = { title: "Admin settings" };
 
@@ -15,7 +16,13 @@ export default async function AdminSettingsPage() {
   const session = await requireAdmin();
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, email: true, name: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      twoFactor: true,
+      passwordHash: true,
+    },
   });
   if (!user) throw new Error("User not found");
 
@@ -36,6 +43,22 @@ export default async function AdminSettingsPage() {
         </CardHeader>
         <CardContent>
           <SettingsForms user={{ id: user.id, name: user.name, email: user.email }} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Security</CardTitle>
+          <CardDescription>
+            Admin accounts have elevated access — enabling two-factor
+            authentication is strongly recommended.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TwoFactorSection
+            enabled={user.twoFactor}
+            hasPassword={user.passwordHash !== null}
+          />
         </CardContent>
       </Card>
     </div>

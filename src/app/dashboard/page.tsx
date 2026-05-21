@@ -187,7 +187,10 @@ export default async function DashboardOverview() {
                         {truncateMiddle(p.withdrawalAddress)}
                       </p>
                     </div>
-                    <ProfileStatusBadge status={p.status} />
+                    <ProfileStatusBadge
+                      status={p.status}
+                      pendingKind={p.accountNumber ? "update" : "new"}
+                    />
                   </div>
                 </div>
               ))

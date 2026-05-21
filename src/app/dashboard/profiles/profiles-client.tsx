@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Clock,
   Copy,
   Eye,
   Landmark,
@@ -18,7 +19,11 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import type { CustomerProfile } from "@prisma/client";
+import type {
+  CustomerProfile,
+  TransactionStatus,
+  TransactionType,
+} from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,9 +53,13 @@ import {
 } from "@/components/ui/select";
 import { Pagination } from "@/components/ui/pagination";
 import { PageSizeSelector } from "@/components/ui/page-size";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { PageSize } from "@/lib/page-size";
 import { useRouter } from "next/navigation";
-import { ProfileStatusBadge } from "@/components/status-badge";
+import {
+  ProfileStatusBadge,
+  TransactionStatusBadge,
+} from "@/components/status-badge";
 import {
   ACCOUNT_CURRENCIES,
   CurrencyFlag,
@@ -59,8 +68,19 @@ import {
   type AccountCurrency,
 } from "@/components/currency-flag";
 import { profileSchema, type ProfileInput } from "@/lib/validators";
-import { cn, formatDate, truncateMiddle } from "@/lib/utils";
-import { createProfile, deleteProfile, updateProfile } from "../actions";
+import {
+  cn,
+  formatDate,
+  formatDateTime,
+  formatUSD,
+  truncateMiddle,
+} from "@/lib/utils";
+import {
+  createProfile,
+  deleteProfile,
+  getProfileTransactions,
+  updateWithdrawalAddress,
+} from "../actions";
 import { ProfilesToolbar, type ProfilesQuery } from "./profiles-toolbar";
 
 type ResolvedQuery = {
@@ -112,27 +132,13 @@ export function ProfilesClient({
               : "No profiles yet."
             : `Showing ${startIdx}–${endIdx} of ${total}`}
         </p>
-        <Dialog
-          open={open || editing !== null}
-          onOpenChange={(v) => {
-            if (!v) {
-              setOpen(false);
-              setEditing(null);
-            }
-          }}
-        >
+        <Dialog open={open} onOpenChange={(v) => !v && setOpen(false)}>
           <DialogTrigger asChild>
             <Button onClick={() => setOpen(true)}>
               <Plus /> New profile
             </Button>
           </DialogTrigger>
-          <ProfileDialog
-            profile={editing}
-            onDone={() => {
-              setOpen(false);
-              setEditing(null);
-            }}
-          />
+          <ProfileDialog onDone={() => setOpen(false)} />
         </Dialog>
       </div>
 
@@ -178,6 +184,15 @@ export function ProfilesClient({
               setEditing(viewing);
               setViewing(null);
             }}
+          />
+        )}
+      </Dialog>
+
+      <Dialog open={editing !== null} onOpenChange={(v) => !v && setEditing(null)}>
+        {editing && (
+          <EditAddressDialog
+            profile={editing}
+            onDone={() => setEditing(null)}
           />
         )}
       </Dialog>
@@ -265,7 +280,10 @@ function ProfileCard({
               {profile.accountCurrency} · Sender: {profile.senderName}
             </CardDescription>
           </div>
-          <ProfileStatusBadge status={profile.status} />
+          <ProfileStatusBadge
+            status={profile.status}
+            pendingKind={profile.accountNumber ? "update" : "new"}
+          />
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -551,7 +569,10 @@ function ProfilesTable({
 
                 {/* Status + actions */}
                 <div className="flex items-center justify-between gap-2 md:w-32 md:justify-end">
-                  <ProfileStatusBadge status={p.status} />
+                  <ProfileStatusBadge
+                    status={p.status}
+                    pendingKind={p.accountNumber ? "update" : "new"}
+                  />
                   <div className="flex items-center gap-0.5">
                     <button
                       type="button"
@@ -591,6 +612,88 @@ function ProfilesTable({
         })}
       </ul>
     </Card>
+  );
+}
+
+type ProfileTx = {
+  id: string;
+  createdAt: Date;
+  senderName: string;
+  type: TransactionType;
+  amountCents: number;
+  status: TransactionStatus;
+};
+
+/** A profile's transaction history, lazily loaded with a skeleton state. */
+function ProfileTransactionHistory({ profileId }: { profileId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<ProfileTx[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    getProfileTransactions(profileId)
+      .then((res) => {
+        if (active) setItems(res.ok ? res.transactions : []);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [profileId]);
+
+  return (
+    <section>
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Transaction history
+      </h3>
+      {loading ? (
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center justify-between gap-3">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <div className="flex flex-col items-end gap-1.5">
+                <Skeleton className="h-3.5 w-16" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <p className="rounded-lg border border-dashed bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+          No transactions on this profile yet.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border/60 overflow-hidden rounded-lg border bg-muted/20">
+          {items.map((t) => (
+            <li
+              key={t.id}
+              className="flex items-center justify-between gap-3 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {t.senderName}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {formatDateTime(t.createdAt)} · {t.type}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <span className="text-sm font-semibold">
+                  {formatUSD(t.amountCents)}
+                </span>
+                <TransactionStatusBadge status={t.status} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -659,7 +762,10 @@ function ProfileViewDialog({
               {profile.accountCurrency} account · Sender: {profile.senderName}
             </DialogDescription>
           </div>
-          <ProfileStatusBadge status={profile.status} />
+          <ProfileStatusBadge
+            status={profile.status}
+            pendingKind={profile.accountNumber ? "update" : "new"}
+          />
         </div>
       </DialogHeader>
 
@@ -760,6 +866,7 @@ function ProfileViewDialog({
           </section>
         )}
 
+        <ProfileTransactionHistory profileId={profile.id} />
       </div>
 
       <DialogFooter className="border-t px-6 py-4">
@@ -774,14 +881,7 @@ function ProfileViewDialog({
   );
 }
 
-function ProfileDialog({
-  profile,
-  onDone,
-}: {
-  profile: CustomerProfile | null;
-  onDone: () => void;
-}) {
-  const isApproved = profile?.status === "APPROVED";
+function ProfileDialog({ onDone }: { onDone: () => void }) {
   const [pending, startTransition] = useTransition();
   const {
     register,
@@ -792,33 +892,15 @@ function ProfileDialog({
     reset,
   } = useForm<ProfileInput>({
     resolver: zodResolver(profileSchema),
-    defaultValues: profile
-      ? {
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          senderName: profile.senderName,
-          accountCurrency: profile.accountCurrency,
-          withdrawalAddress: profile.withdrawalAddress,
-        }
-      : { accountCurrency: "USD" },
+    defaultValues: { accountCurrency: "USD" },
   });
   const accountCurrency = watch("accountCurrency") ?? "USD";
 
   const onSubmit = handleSubmit((data) => {
     startTransition(async () => {
-      const payload =
-        isApproved && profile
-          ? {
-              senderName: data.senderName,
-              withdrawalAddress: data.withdrawalAddress,
-            }
-          : data;
-
-      const res = profile
-        ? await updateProfile(profile.id, payload)
-        : await createProfile(data);
+      const res = await createProfile(data);
       if (res.ok) {
-        toast.success(profile ? "Profile updated" : "Profile submitted for review");
+        toast.success("Profile submitted for review");
         reset();
         onDone();
       } else {
@@ -830,37 +912,30 @@ function ProfileDialog({
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>{profile ? "Edit profile" : "New profile"}</DialogTitle>
+        <DialogTitle>New profile</DialogTitle>
         <DialogDescription>
-          {!profile
-            ? "Your profile will be reviewed by our team and approved before activation."
-            : isApproved
-              ? "Your profile is approved. You can update the sender name and withdrawal address. Contact support to change the name on the account."
-              : profile.status === "REJECTED"
-                ? "This profile was not approved. Fix the details below and save to resubmit it for review."
-                : "Your profile is still under review — you can edit any field."}
+          Your profile will be reviewed by our team and approved before
+          activation.
         </DialogDescription>
       </DialogHeader>
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-2">
-            <Label htmlFor="firstName" className="flex items-center gap-1.5">
-              First name{" "}
-              {isApproved && <Lock className="h-3 w-3 text-muted-foreground" />}
-            </Label>
-            <Input id="firstName" disabled={isApproved} {...register("firstName")} />
+            <Label htmlFor="firstName">First name</Label>
+            <Input id="firstName" {...register("firstName")} />
             {errors.firstName && (
-              <p className="text-xs text-destructive">{errors.firstName.message}</p>
+              <p className="text-xs text-destructive">
+                {errors.firstName.message}
+              </p>
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="lastName" className="flex items-center gap-1.5">
-              Last name{" "}
-              {isApproved && <Lock className="h-3 w-3 text-muted-foreground" />}
-            </Label>
-            <Input id="lastName" disabled={isApproved} {...register("lastName")} />
+            <Label htmlFor="lastName">Last name</Label>
+            <Input id="lastName" {...register("lastName")} />
             {errors.lastName && (
-              <p className="text-xs text-destructive">{errors.lastName.message}</p>
+              <p className="text-xs text-destructive">
+                {errors.lastName.message}
+              </p>
             )}
           </div>
         </div>
@@ -876,13 +951,9 @@ function ProfileDialog({
           )}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="accountCurrency" className="flex items-center gap-1.5">
-            Bank account currency{" "}
-            {isApproved && <Lock className="h-3 w-3 text-muted-foreground" />}
-          </Label>
+          <Label htmlFor="accountCurrency">Bank account currency</Label>
           <Select
             value={accountCurrency}
-            disabled={isApproved}
             onValueChange={(v) =>
               setValue("accountCurrency", v as AccountCurrency, {
                 shouldValidate: true,
@@ -925,7 +996,100 @@ function ProfileDialog({
           </Button>
           <Button type="submit" disabled={pending}>
             {pending && <Loader2 className="animate-spin" />}
-            {profile ? "Save changes" : "Submit for review"}
+            Submit for review
+          </Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  );
+}
+
+/**
+ * Lets a customer change a profile's USDC withdrawal address. Deliberately a
+ * plain controlled form (no form library) — the submit button enables only
+ * when the address is valid and changed, so there is no hidden validation
+ * step that can silently swallow a click.
+ */
+function EditAddressDialog({
+  profile,
+  onDone,
+}: {
+  profile: CustomerProfile;
+  onDone: () => void;
+}) {
+  const [address, setAddress] = useState(profile.withdrawalAddress);
+  const [pending, startTransition] = useTransition();
+
+  const trimmed = address.trim();
+  const valid = /^0x[a-fA-F0-9]{40}$/.test(trimmed);
+  const changed = trimmed !== profile.withdrawalAddress;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid || !changed || pending) return;
+    startTransition(async () => {
+      const res = await updateWithdrawalAddress(profile.id, trimmed);
+      if (res.ok) {
+        toast.success(
+          "Withdrawal address submitted — your profile is now pending admin review.",
+        );
+        onDone();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Update withdrawal address</DialogTitle>
+        <DialogDescription>
+          {profile.firstName} {profile.lastName} · {profile.accountCurrency}{" "}
+          account
+        </DialogDescription>
+      </DialogHeader>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label>Current address</Label>
+          <p className="break-all rounded-lg border bg-muted/40 px-3 py-2 font-mono text-xs">
+            {profile.withdrawalAddress}
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="newWithdrawalAddress">
+            New withdrawal address (USDC on Base)
+          </Label>
+          <Input
+            id="newWithdrawalAddress"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="0x..."
+            className="font-mono text-xs"
+            autoComplete="off"
+          />
+          {trimmed.length > 0 && !valid && (
+            <p className="text-xs text-destructive">
+              Enter a valid Base address — 0x followed by 40 hexadecimal
+              characters.
+            </p>
+          )}
+        </div>
+        <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+          <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Changing the withdrawal address sends this profile back to admin
+            review. An admin is notified and must approve it before it goes
+            live.
+          </span>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onDone}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={pending || !valid || !changed}>
+            {pending && <Loader2 className="animate-spin" />}
+            Submit for review
           </Button>
         </DialogFooter>
       </form>

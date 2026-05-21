@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/auth-guards";
+import { getInAppNotifications } from "@/lib/notifications";
 import { AppShell } from "@/components/app-shell";
 import { AutoRefresh } from "@/components/auto-refresh";
 
@@ -10,6 +11,8 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const session = await requireAdmin();
+  const notifications = await getInAppNotifications(session.user.id);
+
   return (
     <>
       <AutoRefresh />
@@ -22,6 +25,7 @@ export default async function AdminLayout({
         panel="admin"
         settingsHref="/admin/settings"
         panelLabel="Admin Console"
+        notifications={notifications}
       >
         {children}
       </AppShell>

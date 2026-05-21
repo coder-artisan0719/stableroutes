@@ -427,6 +427,38 @@ export function adminNewProfileEmail({
   });
 }
 
+export function adminWithdrawalChangeEmail({
+  profileName,
+  customerName,
+  customerEmail,
+  previousAddress,
+  newAddress,
+}: {
+  profileName: string;
+  customerName: string | null;
+  customerEmail: string;
+  previousAddress: string;
+  newAddress: string;
+}) {
+  const short = (a: string) => `${a.slice(0, 12)}…${a.slice(-8)}`;
+  const body = `
+    <p>A customer changed the USDC withdrawal address on an existing profile.
+    The profile has been moved back to <strong>Pending</strong> and needs your
+    review before it is active again.</p>
+    <table style="width:100%;border-collapse:collapse;margin-top:16px;border-top:1px solid #e2e8f0;">
+      ${row("Customer", `${customerName ?? "—"} (${customerEmail})`)}
+      ${row("Profile", profileName)}
+      ${row("Previous address", short(previousAddress))}
+      ${row("New address", short(newAddress))}
+    </table>`;
+  return shell(
+    "Withdrawal address change — review needed",
+    body,
+    { label: "Review in admin panel", href: `${APP_URL}/admin/profiles` },
+    "gold",
+  );
+}
+
 export function profileStatusEmail({
   name,
   profile,

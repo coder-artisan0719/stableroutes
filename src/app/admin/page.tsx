@@ -194,7 +194,10 @@ export default async function AdminOverview() {
                         {p.user.email}
                       </p>
                     </div>
-                    <ProfileStatusBadge status={p.status} />
+                    <ProfileStatusBadge
+                      status={p.status}
+                      pendingKind={p.accountNumber ? "update" : "new"}
+                    />
                   </div>
                 </div>
               ))

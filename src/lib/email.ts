@@ -7,6 +7,7 @@ import {
   verificationCodeEmail,
   passwordResetEmail,
   adminNewProfileEmail,
+  adminWithdrawalChangeEmail,
   accountStatusEmail,
   credentialsUpdatedEmail,
   announcementEmail,
@@ -179,6 +180,34 @@ export async function sendAdminNewProfileEmail(args: {
       userId: admin.id,
       to: admin.email,
       subject: "New profile submitted for review",
+      html,
+    });
+  }
+}
+
+/** Notifies every admin that a customer changed a profile's withdrawal address. */
+export async function sendAdminWithdrawalChangeEmail(args: {
+  profileName: string;
+  customer: { email: string; name: string | null };
+  previousAddress: string;
+  newAddress: string;
+}) {
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN" },
+    select: { id: true, email: true },
+  });
+  const html = adminWithdrawalChangeEmail({
+    profileName: args.profileName,
+    customerName: args.customer.name,
+    customerEmail: args.customer.email,
+    previousAddress: args.previousAddress,
+    newAddress: args.newAddress,
+  });
+  for (const admin of admins) {
+    await send({
+      userId: admin.id,
+      to: admin.email,
+      subject: "Withdrawal address change needs review",
       html,
     });
   }

@@ -38,7 +38,18 @@ export function TransactionStatusBadge({ status }: { status: TransactionStatus }
   );
 }
 
-export function ProfileStatusBadge({ status }: { status: ProfileStatus }) {
+export function ProfileStatusBadge({
+  status,
+  pendingKind,
+}: {
+  status: ProfileStatus;
+  /**
+   * For PENDING profiles, whether this is a brand-new profile awaiting first
+   * approval ("new") or a previously-approved profile whose withdrawal address
+   * was changed and now needs re-approval ("update").
+   */
+  pendingKind?: "new" | "update";
+}) {
   if (status === "APPROVED") {
     return (
       <Badge variant="success">
@@ -55,7 +66,8 @@ export function ProfileStatusBadge({ status }: { status: ProfileStatus }) {
   }
   return (
     <Badge variant="warning">
-      <Clock className="h-3 w-3" /> Pending
+      <Clock className="h-3 w-3" />
+      {pendingKind === "update" ? "Address update" : "Pending"}
     </Badge>
   );
 }

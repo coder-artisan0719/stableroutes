@@ -405,7 +405,10 @@ function ProfilesGrid({
           <CardContent className="space-y-4 p-5">
             <div className="flex items-start justify-between gap-3">
               <CustomerCell email={p.userEmail} name={p.userName} />
-              <ProfileStatusBadge status={p.status} />
+              <ProfileStatusBadge
+                status={p.status}
+                pendingKind={p.accountNumber ? "update" : "new"}
+              />
             </div>
             <div className="rounded-lg border bg-muted/30 p-3">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -536,7 +539,10 @@ function ProfilesTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <ProfileStatusBadge status={p.status} />
+                  <ProfileStatusBadge
+                    status={p.status}
+                    pendingKind={p.accountNumber ? "update" : "new"}
+                  />
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {formatDateTime(p.createdAt)}
@@ -635,7 +641,10 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
             </DialogTitle>
             <DialogDescription>Sender: {profile.senderName}</DialogDescription>
           </div>
-          <ProfileStatusBadge status={profile.status} />
+          <ProfileStatusBadge
+            status={profile.status}
+            pendingKind={profile.accountNumber ? "update" : "new"}
+          />
         </div>
       </DialogHeader>
 

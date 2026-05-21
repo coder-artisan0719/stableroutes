@@ -7,11 +7,13 @@ import { prisma } from "@/lib/prisma";
 import {
   passwordUpdateSchema,
   profileSchema,
-  profileApprovedUpdateSchema,
-  profilePendingUpdateSchema,
   transactionCreateSchema,
 } from "@/lib/validators";
-import { sendAdminNewProfileEmail } from "@/lib/email";
+import {
+  sendAdminNewProfileEmail,
+  sendAdminWithdrawalChangeEmail,
+} from "@/lib/email";
+import { createAdminNotification } from "@/lib/notifications";
 import {
   buildOtpAuthUrl,
   buildQrDataUrl,
@@ -56,55 +58,108 @@ export async function createProfile(input: unknown) {
 
   // Notify admins that a new profile is waiting for review.
   void sendAdminNewProfileEmail({ profile, customer });
+  void createAdminNotification({
+    title: "New profile submitted",
+    message: `${customer.name ?? customer.email} submitted "${profile.firstName} ${profile.lastName}" for review.`,
+    url: "/admin/profiles",
+  });
 
   revalidatePath("/dashboard/profiles");
   revalidatePath("/dashboard");
+  revalidatePath("/admin/profiles");
+  revalidatePath("/admin");
   return { ok: true as const };
 }
 
-export async function updateProfile(id: string, input: unknown) {
+/**
+ * The only profile edit a customer can make: changing the USDC withdrawal
+ * address. The change is applied, the profile is moved back to PENDING, and
+ * admins are notified (by email — reliable — and the in-app bell). An admin
+ * must re-approve before the profile is active again.
+ */
+export async function updateWithdrawalAddress(
+  profileId: string,
+  address: unknown,
+) {
   const userId = await requireUserId();
-  const existing = await prisma.customerProfile.findUnique({ where: { id } });
+
+  const next = typeof address === "string" ? address.trim() : "";
+  if (!/^0x[a-fA-F0-9]{40}$/.test(next)) {
+    return {
+      ok: false as const,
+      error:
+        "Enter a valid Base address — 0x followed by 40 hexadecimal characters.",
+    };
+  }
+
+  const existing = await prisma.customerProfile.findUnique({
+    where: { id: profileId },
+    include: { user: { select: { email: true, name: true } } },
+  });
   if (!existing || existing.userId !== userId) {
     return { ok: false as const, error: "Profile not found" };
   }
-
-  // Approved profiles: only senderName + withdrawalAddress are editable.
-  // Pending / rejected profiles: full edit allowed. Editing a rejected
-  // profile resubmits it — status returns to PENDING and the reason clears.
-  if (existing.status === "APPROVED") {
-    const parsed = profileApprovedUpdateSchema.safeParse(input);
-    if (!parsed.success) {
-      return {
-        ok: false as const,
-        error: parsed.error.issues[0]?.message ?? "Invalid input",
-      };
-    }
-    await prisma.customerProfile.update({
-      where: { id },
-      data: parsed.data,
-    });
-  } else {
-    const parsed = profilePendingUpdateSchema.safeParse(input);
-    if (!parsed.success) {
-      return {
-        ok: false as const,
-        error: parsed.error.issues[0]?.message ?? "Invalid input",
-      };
-    }
-    await prisma.customerProfile.update({
-      where: { id },
-      data: {
-        ...parsed.data,
-        ...(existing.status === "REJECTED"
-          ? { status: "PENDING" as const, notes: null }
-          : {}),
-      },
-    });
+  if (next === existing.withdrawalAddress) {
+    return {
+      ok: false as const,
+      error: "That is already the withdrawal address on this profile.",
+    };
   }
 
+  await prisma.customerProfile.update({
+    where: { id: profileId },
+    data: {
+      withdrawalAddress: next,
+      status: "PENDING",
+      approvedAt: null,
+      approvedById: null,
+      ...(existing.status === "REJECTED" ? { notes: null } : {}),
+    },
+  });
+
+  void sendAdminWithdrawalChangeEmail({
+    profileName: `${existing.firstName} ${existing.lastName}`,
+    customer: { email: existing.user.email, name: existing.user.name },
+    previousAddress: existing.withdrawalAddress,
+    newAddress: next,
+  });
+  void createAdminNotification({
+    title: "Withdrawal address changed",
+    message: `${existing.firstName} ${existing.lastName} updated their USDC withdrawal address — the profile is back in the review queue.`,
+    url: "/admin/profiles",
+  });
+
   revalidatePath("/dashboard/profiles");
+  revalidatePath("/dashboard");
+  revalidatePath("/admin/profiles");
+  revalidatePath("/admin");
   return { ok: true as const };
+}
+
+/** Returns the transaction history for one of the customer's own profiles. */
+export async function getProfileTransactions(profileId: string) {
+  const userId = await requireUserId();
+  const profile = await prisma.customerProfile.findUnique({
+    where: { id: profileId },
+    select: { userId: true },
+  });
+  if (!profile || profile.userId !== userId) {
+    return { ok: false as const, error: "Profile not found" };
+  }
+  const transactions = await prisma.transaction.findMany({
+    where: { profileId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      createdAt: true,
+      senderName: true,
+      type: true,
+      amountCents: true,
+      status: true,
+    },
+  });
+  return { ok: true as const, transactions };
 }
 
 export async function deleteProfile(id: string) {
@@ -183,6 +238,7 @@ export async function updateAccountName(name: string) {
   if (cleaned.length < 2) return { ok: false as const, error: "Name is too short" };
   await prisma.user.update({ where: { id: userId }, data: { name: cleaned } });
   revalidatePath("/dashboard/settings");
+  revalidatePath("/admin/settings");
   return { ok: true as const };
 }
 
@@ -259,6 +315,7 @@ export async function confirmTwoFactorSetup(code: unknown) {
     data: { twoFactor: true },
   });
   revalidatePath("/dashboard/settings");
+  revalidatePath("/admin/settings");
   return { ok: true as const };
 }
 
@@ -285,5 +342,6 @@ export async function disableTwoFactor(password: unknown) {
     data: { twoFactor: false, twoFactorSecret: null },
   });
   revalidatePath("/dashboard/settings");
+  revalidatePath("/admin/settings");
   return { ok: true as const };
 }
