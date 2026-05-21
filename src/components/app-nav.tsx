@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  Megaphone,
   Receipt,
   Settings,
   ShieldCheck,
@@ -29,6 +30,7 @@ const NAV: Record<PanelType, NavItem[]> = {
     { href: "/admin/profiles", label: "Profiles", icon: ShieldCheck },
     { href: "/admin/transactions", label: "Transactions", icon: Receipt },
     { href: "/admin/customers", label: "Customers", icon: Users },
+    { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
     { href: "/admin/settings", label: "Settings", icon: Settings },
   ],
 };

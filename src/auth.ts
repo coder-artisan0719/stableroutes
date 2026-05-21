@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import type { UserRole } from "@prisma/client";
+import { verifyTotp } from "@/lib/totp";
 import authConfig from "@/auth.config";
 
 declare module "next-auth" {
@@ -23,6 +24,9 @@ declare module "next-auth" {
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
+  // Present only on the second submit, once the login form has discovered
+  // the account has 2FA enabled.
+  code: z.string().optional(),
 });
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -45,6 +49,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        code: { label: "2FA code", type: "text" },
       },
       authorize: async (creds) => {
         const parsed = credentialsSchema.safeParse(creds);
@@ -64,6 +69,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // "blocked" / "unverified" / "wrong password" apart.
         if (user.blocked) return null;
         if (!user.emailVerified) return null;
+
+        // 2FA gate: when enabled, a valid TOTP code must accompany the
+        // password. Missing/invalid code rejects the same as a bad password;
+        // the login form calls /api/check-email to learn a code is needed.
+        if (user.twoFactor && user.twoFactorSecret) {
+          const code = parsed.data.code ?? "";
+          if (!(await verifyTotp(code, user.twoFactorSecret))) return null;
+        }
 
         return {
           id: user.id,

@@ -109,6 +109,28 @@ export const blockCustomerSchema = z.object({
   blocked: z.boolean(),
   reason: z.string().max(500).optional(),
 });
+
+// Admin broadcasts an announcement email to every customer.
+export const announcementSchema = z.object({
+  type: z.enum(["FEATURE", "MAINTENANCE", "GENERAL"]),
+  subject: z.string().trim().min(3, "Subject is too short").max(160),
+  message: z.string().trim().min(10, "Message is too short").max(4000),
+  // Pre-formatted, human-readable time (e.g. a maintenance window). Optional.
+  scheduledLabel: z.string().trim().max(120).optional(),
+});
+
+// Admin updates a customer's sign-in email and/or password.
+// An empty/omitted password means "leave the current password unchanged".
+export const adminUpdateCredentialsSchema = z.object({
+  id: z.string().min(1),
+  email: z.string().email("Enter a valid email").max(160),
+  password: z
+    .union([
+      z.string().min(8, "Password must be at least 8 characters").max(128),
+      z.literal(""),
+    ])
+    .optional(),
+});
 export type AdminTransactionCreateInput = z.infer<
   typeof adminTransactionCreateSchema
 >;

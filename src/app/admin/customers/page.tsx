@@ -16,6 +16,7 @@ export default async function AdminCustomersPage() {
       createdAt: true,
       blocked: true,
       blockedReason: true,
+      twoFactor: true,
       _count: { select: { profiles: true, transactions: true } },
     },
   });
@@ -37,6 +38,7 @@ export default async function AdminCustomersPage() {
           createdAt: c.createdAt,
           blocked: c.blocked,
           blockedReason: c.blockedReason,
+          twoFactor: c.twoFactor,
           profiles: c._count.profiles,
           transactions: c._count.transactions,
         }))}

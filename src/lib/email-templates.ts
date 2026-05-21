@@ -135,6 +135,14 @@ function shell(
 </html>`;
 }
 
+/** Escape user-authored text before interpolating it into email HTML. */
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function row(label: string, value: string) {
   return `<tr><td style="padding:8px 0;color:#64748b;font-size:13px;">${label}</td><td style="padding:8px 0;text-align:right;font-weight:500;font-size:13px;color:#0f172a;">${value}</td></tr>`;
 }
@@ -309,6 +317,90 @@ export function accountStatusEmail({
      in again and resume using your dashboard.</p>`,
     { label: "Sign in", href: `${APP_URL}/login` },
     "green",
+  );
+}
+
+export function credentialsUpdatedEmail({
+  name,
+  emailChanged,
+  passwordChanged,
+  newEmail,
+}: {
+  name: string;
+  emailChanged: boolean;
+  passwordChanged: boolean;
+  newEmail: string;
+}) {
+  const changed = [
+    emailChanged ? "sign-in email" : null,
+    passwordChanged ? "password" : null,
+  ]
+    .filter(Boolean)
+    .join(" and ");
+  return shell(
+    "Your sign-in details were updated",
+    `<p>Hi ${name},</p>
+     <p>An administrator has updated your ${changed} for your ${APP_NAME} account.</p>
+     ${
+       emailChanged
+         ? `<p>From now on, sign in with this email address: <strong>${newEmail}</strong></p>`
+         : ""
+     }
+     ${
+       passwordChanged
+         ? `<p>Your password was changed. If you weren't given the new password,
+            use <strong>Forgot password</strong> on the sign-in page to set one yourself.</p>`
+         : ""
+     }
+     <p>If you didn't expect this change, contact our support team right away.</p>`,
+    { label: "Sign in", href: `${APP_URL}/login` },
+    "blue",
+  );
+}
+
+export function announcementEmail({
+  name,
+  type,
+  heading,
+  message,
+  scheduledLabel,
+}: {
+  name: string;
+  type: "FEATURE" | "MAINTENANCE" | "GENERAL";
+  heading: string;
+  message: string;
+  scheduledLabel?: string | null;
+}) {
+  const tone: BannerTone = type === "FEATURE" ? "blue" : "gold";
+  const kicker =
+    type === "FEATURE"
+      ? "Product update"
+      : type === "MAINTENANCE"
+        ? "Scheduled maintenance"
+        : "Announcement";
+
+  // Admin-authored text — escape, then turn blank lines into paragraphs.
+  const paragraphs = escapeHtml(message)
+    .split(/\n{2,}/)
+    .map((p) => `<p>${p.replace(/\n/g, "<br />")}</p>`)
+    .join("");
+
+  const when = scheduledLabel
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0;width:100%;">
+         <tr><td style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;font-size:14px;color:#9a3412;">
+           <strong>When:</strong> ${escapeHtml(scheduledLabel)}
+         </td></tr>
+       </table>`
+    : "";
+
+  return shell(
+    escapeHtml(heading),
+    `<p style="margin-top:0;font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#94a3b8;">${kicker}</p>
+     <p>Hi ${name},</p>
+     ${paragraphs}
+     ${when}`,
+    { label: "Open dashboard", href: `${APP_URL}/dashboard` },
+    tone,
   );
 }
 

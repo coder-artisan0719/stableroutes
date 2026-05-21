@@ -8,6 +8,8 @@ import {
   passwordResetEmail,
   adminNewProfileEmail,
   accountStatusEmail,
+  credentialsUpdatedEmail,
+  announcementEmail,
 } from "@/lib/email-templates";
 import { CODE_TTL_MINUTES } from "@/lib/verification";
 import type { Transaction, CustomerProfile } from "@prisma/client";
@@ -197,6 +199,57 @@ export async function sendAccountStatusEmail(args: {
       name: args.user.name ?? "there",
       blocked: args.blocked,
       reason: args.reason,
+    }),
+  });
+}
+
+/**
+ * Broadcasts an announcement (new feature / maintenance) to every active
+ * customer. Blocked accounts are skipped. Returns how many were emailed.
+ */
+export async function sendAnnouncementToAllCustomers(args: {
+  type: "FEATURE" | "MAINTENANCE" | "GENERAL";
+  subject: string;
+  message: string;
+  scheduledLabel?: string | null;
+}) {
+  const customers = await prisma.user.findMany({
+    where: { role: "CUSTOMER", blocked: false },
+    select: { id: true, email: true, name: true },
+  });
+  for (const customer of customers) {
+    await send({
+      userId: customer.id,
+      to: customer.email,
+      subject: args.subject,
+      html: announcementEmail({
+        name: customer.name ?? "there",
+        type: args.type,
+        heading: args.subject,
+        message: args.message,
+        scheduledLabel: args.scheduledLabel,
+      }),
+    });
+  }
+  return customers.length;
+}
+
+export async function sendCredentialsUpdatedEmail(args: {
+  user: { id: string; name: string | null };
+  to: string;
+  emailChanged: boolean;
+  passwordChanged: boolean;
+  newEmail: string;
+}) {
+  return send({
+    userId: args.user.id,
+    to: args.to,
+    subject: "Your StableRoute sign-in details were updated",
+    html: credentialsUpdatedEmail({
+      name: args.user.name ?? "there",
+      emailChanged: args.emailChanged,
+      passwordChanged: args.passwordChanged,
+      newEmail: args.newEmail,
     }),
   });
 }

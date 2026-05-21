@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LogOut, Settings, User as UserIcon } from "lucide-react";
 import { SideNav, MobileNav, type PanelType } from "@/components/app-nav";
+import {
+  NotificationBell,
+  type NotificationItem,
+} from "@/components/notification-bell";
 
 const ROOT_HREF: Record<PanelType, string> = {
   customer: "/dashboard",
@@ -25,12 +29,14 @@ export function AppShell({
   panel,
   settingsHref,
   panelLabel,
+  notifications,
   children,
 }: {
   user: { name: string | null; email: string; role: string };
   panel: PanelType;
   settingsHref: string;
   panelLabel: string;
+  notifications?: { items: NotificationItem[]; unreadCount: number };
   children: React.ReactNode;
 }) {
   const rootHref = ROOT_HREF[panel];
@@ -66,6 +72,12 @@ export function AppShell({
             <Logo size="sm" href={rootHref} />
           </div>
           <div className="flex flex-1 items-center justify-end gap-2">
+            {notifications && (
+              <NotificationBell
+                items={notifications.items}
+                unreadCount={notifications.unreadCount}
+              />
+            )}
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

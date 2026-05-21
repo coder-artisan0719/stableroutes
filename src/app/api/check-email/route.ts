@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { issueVerificationCode } from "@/lib/verification";
 import { sendVerificationCodeEmail } from "@/lib/email";
 
-const schema = z.object({ email: z.string().email() });
+const schema = z.object({
+  email: z.string().email(),
+  password: z.string().optional(),
+});
 
 /**
- * Called by the login form after a credentials sign-in fails, to distinguish
- * an unverified email account from wrong-password. If the account exists but
- * isn't verified, we also reissue a fresh code so the user doesn't have to
- * click "resend" manually after being redirected.
+ * Called by the login form after a credentials sign-in fails, to explain why.
+ * Distinguishes an unverified or blocked account from a wrong password, and —
+ * when the password is actually correct — reports that a 2FA code is required.
+ * Unverified accounts also get a fresh code reissued automatically.
  */
 export async function POST(request: Request) {
   let payload: unknown;
@@ -27,7 +31,14 @@ export async function POST(request: Request) {
   const email = parsed.data.email.toLowerCase();
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, name: true, emailVerified: true, blocked: true },
+    select: {
+      id: true,
+      name: true,
+      emailVerified: true,
+      blocked: true,
+      passwordHash: true,
+      twoFactor: true,
+    },
   });
 
   if (!user) {
@@ -36,18 +47,28 @@ export async function POST(request: Request) {
   if (user.blocked) {
     return NextResponse.json({ blocked: true });
   }
-  if (user.emailVerified) {
-    return NextResponse.json({ needsVerification: false });
+  if (!user.emailVerified) {
+    // Unverified — reissue a fresh code in the background.
+    const code = await issueVerificationCode(email);
+    void sendVerificationCodeEmail({
+      userId: user.id,
+      email,
+      name: user.name,
+      code,
+    });
+    return NextResponse.json({ needsVerification: true });
   }
 
-  // Unverified — reissue a fresh code in the background.
-  const code = await issueVerificationCode(email);
-  void sendVerificationCodeEmail({
-    userId: user.id,
-    email,
-    name: user.name,
-    code,
-  });
+  // Verified and not blocked — if the supplied password is correct and 2FA is
+  // on, the sign-in failed only because a code is still needed.
+  if (
+    parsed.data.password &&
+    user.passwordHash &&
+    user.twoFactor &&
+    (await bcrypt.compare(parsed.data.password, user.passwordHash))
+  ) {
+    return NextResponse.json({ twoFactorRequired: true });
+  }
 
-  return NextResponse.json({ needsVerification: true });
+  return NextResponse.json({ needsVerification: false });
 }

@@ -7,7 +7,7 @@ import { signIn } from "next-auth/react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, CheckCircle2, Clock, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +44,8 @@ export function LoginForm({
         : null,
   );
   const [pending, startTransition] = useTransition();
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [code, setCode] = useState("");
 
   const {
     register,
@@ -60,15 +62,19 @@ export function LoginForm({
       const res = await signIn("credentials", {
         email: data.email,
         password: data.password,
+        code: twoFactorRequired ? code : undefined,
         redirect: false,
       });
       if (res?.error) {
-        // signIn failed — distinguish blocked / unverified / wrong-password.
+        // signIn failed — distinguish blocked / unverified / 2FA / wrong password.
         try {
           const check = await fetch("/api/check-email", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: data.email }),
+            body: JSON.stringify({
+              email: data.email,
+              password: data.password,
+            }),
           });
           const body = await check.json().catch(() => ({}));
           if (body?.blocked) {
@@ -81,6 +87,14 @@ export function LoginForm({
             toast.message("Please verify your email — we sent a fresh code.");
             router.replace(
               `/verify-email?email=${encodeURIComponent(data.email)}`,
+            );
+            return;
+          }
+          if (body?.twoFactorRequired) {
+            // Password was correct — a 2FA code is (still) needed.
+            setTwoFactorRequired(true);
+            setError(
+              code ? "That code is incorrect or expired. Try again." : null,
             );
             return;
           }
@@ -170,9 +184,40 @@ export function LoginForm({
             <p className="text-xs text-destructive">{errors.password.message}</p>
           )}
         </div>
-        <Button type="submit" className="w-full" disabled={pending}>
+        {twoFactorRequired && (
+          <div className="space-y-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <Label
+              htmlFor="code"
+              className="flex items-center gap-1.5 text-foreground"
+            >
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Two-factor code
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Enter the 6-digit code from your authenticator app.
+            </p>
+            <Input
+              id="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              maxLength={6}
+              placeholder="123456"
+              value={code}
+              onChange={(e) =>
+                setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              className="font-mono tracking-[0.3em]"
+            />
+          </div>
+        )}
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={pending || (twoFactorRequired && code.length !== 6)}
+        >
           {pending ? <Loader2 className="animate-spin" /> : null}
-          Sign in
+          {twoFactorRequired ? "Verify & sign in" : "Sign in"}
         </Button>
       </form>
     </div>

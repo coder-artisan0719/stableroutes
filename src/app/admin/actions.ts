@@ -1,19 +1,26 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import bcrypt from "bcryptjs";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import {
   adminTransactionCreateSchema,
+  adminUpdateCredentialsSchema,
+  announcementSchema,
   blockCustomerSchema,
   profileApprovalSchema,
   transactionStatusSchema,
 } from "@/lib/validators";
 import {
   sendAccountStatusEmail,
+  sendAnnouncementToAllCustomers,
+  sendCredentialsUpdatedEmail,
   sendProfileStatusEmail,
   sendTransactionStatusEmail,
 } from "@/lib/email";
+import { createCustomerNotification } from "@/lib/notifications";
+import { formatUSD } from "@/lib/utils";
 
 async function requireAdminId() {
   const session = await auth();
@@ -54,7 +61,7 @@ export async function setProfileStatus(input: unknown) {
   const updated = await prisma.customerProfile.update({
     where: { id: parsed.data.id },
     data,
-    include: { user: true },
+    include: { user: { select: { id: true, email: true, name: true } } },
   });
 
   void sendProfileStatusEmail({
@@ -64,6 +71,24 @@ export async function setProfileStatus(input: unknown) {
       name: updated.user.name,
     },
     profile: updated,
+  });
+
+  const profileName = `${updated.firstName} ${updated.lastName}`;
+  void createCustomerNotification({
+    userId: updated.user.id,
+    title:
+      updated.status === "APPROVED"
+        ? "Profile approved"
+        : updated.status === "REJECTED"
+          ? "Profile needs changes"
+          : "Profile under review",
+    message:
+      updated.status === "APPROVED"
+        ? `${profileName} is approved and ready to receive transfers.`
+        : updated.status === "REJECTED"
+          ? `${profileName} wasn't approved. Open it to make changes and resubmit.`
+          : `${profileName} is back under review.`,
+    url: "/dashboard/profiles",
   });
 
   revalidatePath("/admin/profiles");
@@ -102,7 +127,7 @@ export async function adminCreateTransaction(input: unknown) {
 
   const profile = await prisma.customerProfile.findUnique({
     where: { id: parsed.data.profileId },
-    include: { user: true },
+    include: { user: { select: { id: true, email: true, name: true } } },
   });
   if (!profile) {
     return { ok: false as const, error: "Profile not found" };
@@ -142,6 +167,15 @@ export async function adminCreateTransaction(input: unknown) {
       name: profile.user.name,
     },
     transaction: tx,
+  });
+
+  void createCustomerNotification({
+    userId: profile.userId,
+    title: isScheduled ? "Payment scheduled" : "New payment pending",
+    message: `A ${tx.type} transfer of ${formatUSD(tx.amountCents)} from ${
+      tx.senderName
+    } ${isScheduled ? "has been scheduled." : "is now pending."}`,
+    url: "/dashboard/transactions",
   });
 
   revalidatePath("/admin/transactions");
@@ -189,6 +223,121 @@ export async function setCustomerBlocked(input: unknown) {
 
   revalidatePath("/admin/customers");
   revalidatePath("/admin");
+  return { ok: true as const };
+}
+
+export async function sendAnnouncement(input: unknown) {
+  await requireAdminId();
+  const parsed = announcementSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Invalid input",
+    };
+  }
+
+  const sent = await sendAnnouncementToAllCustomers({
+    type: parsed.data.type,
+    subject: parsed.data.subject,
+    message: parsed.data.message,
+    scheduledLabel: parsed.data.scheduledLabel ?? null,
+  });
+
+  return { ok: true as const, sent };
+}
+
+export async function adminUpdateCustomerCredentials(input: unknown) {
+  await requireAdminId();
+  const parsed = adminUpdateCredentialsSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Invalid input",
+    };
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id: parsed.data.id },
+    select: { id: true, email: true, name: true, role: true },
+  });
+  if (!target) return { ok: false as const, error: "Customer not found" };
+  if (target.role === "ADMIN") {
+    return { ok: false as const, error: "Admin accounts can't be edited here" };
+  }
+
+  // Emails are stored lower-cased (see signup) — normalise before comparing.
+  const newEmail = parsed.data.email.trim().toLowerCase();
+  const emailChanged = newEmail !== target.email;
+
+  if (emailChanged) {
+    const dup = await prisma.user.findUnique({
+      where: { email: newEmail },
+      select: { id: true },
+    });
+    if (dup && dup.id !== target.id) {
+      return {
+        ok: false as const,
+        error: "That email is already used by another account",
+      };
+    }
+  }
+
+  const newPassword = parsed.data.password?.length ? parsed.data.password : null;
+  const passwordChanged = newPassword !== null;
+
+  if (!emailChanged && !passwordChanged) {
+    return { ok: false as const, error: "Nothing to update" };
+  }
+
+  await prisma.user.update({
+    where: { id: target.id },
+    data: {
+      ...(emailChanged ? { email: newEmail } : {}),
+      ...(passwordChanged
+        ? { passwordHash: await bcrypt.hash(newPassword, 12) }
+        : {}),
+    },
+  });
+
+  void sendCredentialsUpdatedEmail({
+    user: { id: target.id, name: target.name },
+    to: newEmail,
+    emailChanged,
+    passwordChanged,
+    newEmail,
+  });
+
+  revalidatePath("/admin/customers");
+  return { ok: true as const };
+}
+
+/**
+ * Recovery path for a customer locked out of their authenticator: an admin
+ * turns 2FA off so they can sign in with just their password again.
+ */
+export async function adminResetTwoFactor(id: string) {
+  await requireAdminId();
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, role: true, twoFactor: true },
+  });
+  if (!target) return { ok: false as const, error: "Customer not found" };
+  if (target.role === "ADMIN") {
+    return { ok: false as const, error: "Admin accounts can't be edited here" };
+  }
+  if (!target.twoFactor) {
+    return {
+      ok: false as const,
+      error: "Two-factor authentication isn't enabled for this customer",
+    };
+  }
+
+  await prisma.user.update({
+    where: { id },
+    data: { twoFactor: false, twoFactorSecret: null },
+  });
+
+  revalidatePath("/admin/customers");
   return { ok: true as const };
 }
 
@@ -249,7 +398,7 @@ export async function setTransactionStatus(input: unknown) {
       completedAt: parsed.data.status === "COMPLETED" ? now : null,
       refundedAt: parsed.data.status === "REFUNDED" ? now : null,
     },
-    include: { user: true },
+    include: { user: { select: { id: true, email: true, name: true } } },
   });
 
   void sendTransactionStatusEmail({
@@ -259,6 +408,21 @@ export async function setTransactionStatus(input: unknown) {
       name: updated.user.name,
     },
     transaction: updated,
+  });
+
+  const statusTitle: Record<typeof updated.status, string> = {
+    COMPLETED: "Transfer completed",
+    REFUNDED: "Transfer refunded",
+    SCHEDULED: "Transfer scheduled",
+    PENDING: "Transfer pending",
+  };
+  void createCustomerNotification({
+    userId: updated.user.id,
+    title: statusTitle[updated.status],
+    message: `Your ${formatUSD(updated.amountCents)} transfer from ${
+      updated.senderName
+    } is now ${updated.status.toLowerCase()}.`,
+    url: "/dashboard/transactions",
   });
 
   revalidatePath("/admin/transactions");

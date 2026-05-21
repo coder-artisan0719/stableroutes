@@ -29,7 +29,10 @@ export default async function AdminTransactionsPage({
     prisma.transaction.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: { user: true, profile: true },
+      include: {
+        user: { select: { email: true, name: true } },
+        profile: { select: { firstName: true, lastName: true } },
+      },
       take: 200,
     }),
     prisma.transaction.groupBy({

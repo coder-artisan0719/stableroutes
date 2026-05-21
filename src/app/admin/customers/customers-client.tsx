@@ -5,14 +5,20 @@ import { toast } from "sonner";
 import {
   Ban,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  KeyRound,
   Loader2,
   ShieldCheck,
+  ShieldOff,
   Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
@@ -31,7 +37,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatDate } from "@/lib/utils";
-import { adminDeleteCustomer, setCustomerBlocked } from "../actions";
+import {
+  adminDeleteCustomer,
+  adminResetTwoFactor,
+  adminUpdateCustomerCredentials,
+  setCustomerBlocked,
+} from "../actions";
 
 type Customer = {
   id: string;
@@ -40,6 +51,7 @@ type Customer = {
   createdAt: Date;
   blocked: boolean;
   blockedReason: string | null;
+  twoFactor: boolean;
   profiles: number;
   transactions: number;
 };
@@ -51,6 +63,7 @@ export function AdminCustomersClient({
 }) {
   const [target, setTarget] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
+  const [editing, setEditing] = useState<Customer | null>(null);
 
   return (
     <>
@@ -98,6 +111,15 @@ export function AdminCustomersClient({
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditing(c)}
+                          aria-label="Edit credentials"
+                          title="Edit sign-in credentials"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </Button>
                         {c.blocked ? (
                           <Button
                             size="sm"
@@ -150,7 +172,169 @@ export function AdminCustomersClient({
           />
         )}
       </Dialog>
+
+      <Dialog open={editing !== null} onOpenChange={(v) => !v && setEditing(null)}>
+        {editing && (
+          <CredentialsDialog
+            customer={editing}
+            onDone={() => setEditing(null)}
+          />
+        )}
+      </Dialog>
     </>
+  );
+}
+
+function CredentialsDialog({
+  customer,
+  onDone,
+}: {
+  customer: Customer;
+  onDone: () => void;
+}) {
+  const [email, setEmail] = useState(customer.email);
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [twoFactorOn, setTwoFactorOn] = useState(customer.twoFactor);
+  const [pending, startTransition] = useTransition();
+  const [resetPending, startResetTransition] = useTransition();
+
+  const submit = () => {
+    startTransition(async () => {
+      const res = await adminUpdateCustomerCredentials({
+        id: customer.id,
+        email: email.trim(),
+        password,
+      });
+      if (res.ok) {
+        toast.success(
+          "Credentials updated. The customer has been notified by email.",
+        );
+        onDone();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  const resetTwoFactor = () => {
+    if (
+      !confirm(
+        "Disable two-factor for this customer? They'll be able to sign in with just their password until they set it up again.",
+      )
+    )
+      return;
+    startResetTransition(async () => {
+      const res = await adminResetTwoFactor(customer.id);
+      if (res.ok) {
+        toast.success("Two-factor authentication disabled for this customer.");
+        setTwoFactorOn(false);
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Edit sign-in credentials</DialogTitle>
+        <DialogDescription>
+          Update the sign-in email or set a new password for{" "}
+          <strong>{customer.name ?? customer.email}</strong>. Existing passwords
+          are encrypted and can&apos;t be viewed — only replaced. The customer is
+          notified by email of any change.
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="cred-email">Sign-in email</Label>
+          <Input
+            id="cred-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="cred-password">New password</Label>
+          <div className="relative">
+            <Input
+              id="cred-password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep current password"
+              autoComplete="new-password"
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Minimum 8 characters. Leave blank to leave the password unchanged.
+          </p>
+        </div>
+
+        <div className="rounded-lg border p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm">
+              <p className="font-medium">Two-factor authentication</p>
+              <p className="text-xs text-muted-foreground">
+                {twoFactorOn
+                  ? "Enabled — the customer signs in with an authenticator code."
+                  : "Not enabled for this customer."}
+              </p>
+            </div>
+            {twoFactorOn && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={resetTwoFactor}
+                disabled={resetPending}
+                className="shrink-0"
+              >
+                {resetPending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <ShieldOff className="h-3.5 w-3.5" />
+                )}
+                Disable
+              </Button>
+            )}
+          </div>
+          {twoFactorOn && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Use this if the customer has lost access to their authenticator
+              app and is locked out.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" onClick={onDone}>
+          <X /> Cancel
+        </Button>
+        <Button onClick={submit} disabled={pending}>
+          {pending && <Loader2 className="animate-spin" />}
+          <KeyRound className="h-4 w-4" /> Save changes
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 

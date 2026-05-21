@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SettingsForms } from "./settings-forms";
+import { TwoFactorSection } from "./two-factor-section";
 
 export const metadata = { title: "Settings" };
 
@@ -15,7 +16,14 @@ export default async function SettingsPage() {
   const session = await requireCustomer();
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, email: true, name: true, createdAt: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      createdAt: true,
+      twoFactor: true,
+      passwordHash: true,
+    },
   });
   if (!user) throw new Error("User not found");
 
@@ -38,6 +46,21 @@ export default async function SettingsPage() {
         <CardContent>
           <SettingsForms
             user={{ id: user.id, name: user.name, email: user.email }}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Security</CardTitle>
+          <CardDescription>
+            Add an extra layer of protection to your account at sign-in.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TwoFactorSection
+            enabled={user.twoFactor}
+            hasPassword={user.passwordHash !== null}
           />
         </CardContent>
       </Card>

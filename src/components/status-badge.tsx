@@ -55,7 +55,7 @@ export function ProfileStatusBadge({ status }: { status: ProfileStatus }) {
   }
   return (
     <Badge variant="warning">
-      <ShieldAlert className="h-3 w-3" /> Pending review
+      <Clock className="h-3 w-3" /> Pending
     </Badge>
   );
 }

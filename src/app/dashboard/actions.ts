@@ -12,6 +12,12 @@ import {
   transactionCreateSchema,
 } from "@/lib/validators";
 import { sendAdminNewProfileEmail } from "@/lib/email";
+import {
+  buildOtpAuthUrl,
+  buildQrDataUrl,
+  generateTwoFactorSecret,
+  verifyTotp,
+} from "@/lib/totp";
 
 async function requireUserId() {
   const session = await auth();
@@ -176,6 +182,108 @@ export async function updateAccountName(name: string) {
   const cleaned = name.trim().slice(0, 80);
   if (cleaned.length < 2) return { ok: false as const, error: "Name is too short" };
   await prisma.user.update({ where: { id: userId }, data: { name: cleaned } });
+  revalidatePath("/dashboard/settings");
+  return { ok: true as const };
+}
+
+// ---------- Notifications ----------
+
+/** Marks every unread in-app notification for the current customer as read. */
+export async function markAllNotificationsRead() {
+  const userId = await requireUserId();
+  await prisma.notification.updateMany({
+    where: { userId, channel: "IN_APP", readAt: null },
+    data: { readAt: new Date() },
+  });
+  return { ok: true as const };
+}
+
+// ---------- Two-factor authentication ----------
+
+/**
+ * Begins TOTP enrollment: generates a secret and returns the QR code to scan.
+ * `twoFactor` stays false until the customer confirms a code from their app.
+ */
+export async function startTwoFactorSetup() {
+  const userId = await requireUserId();
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, passwordHash: true, twoFactor: true },
+  });
+  if (!user) return { ok: false as const, error: "User not found" };
+  if (!user.passwordHash) {
+    return {
+      ok: false as const,
+      error:
+        "This account signs in with Google — two-factor is managed by your Google account.",
+    };
+  }
+  if (user.twoFactor) {
+    return {
+      ok: false as const,
+      error: "Two-factor authentication is already enabled.",
+    };
+  }
+
+  const secret = generateTwoFactorSecret();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { twoFactorSecret: secret },
+  });
+  const qr = await buildQrDataUrl(buildOtpAuthUrl(user.email, secret));
+  return { ok: true as const, secret, qr };
+}
+
+/** Confirms enrollment by checking a code against the pending secret. */
+export async function confirmTwoFactorSetup(code: unknown) {
+  const userId = await requireUserId();
+  const token = typeof code === "string" ? code : "";
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { twoFactorSecret: true },
+  });
+  if (!user?.twoFactorSecret) {
+    return {
+      ok: false as const,
+      error: "Start the setup again — no pending secret was found.",
+    };
+  }
+  if (!(await verifyTotp(token, user.twoFactorSecret))) {
+    return {
+      ok: false as const,
+      error: "That code is incorrect or expired. Try again.",
+    };
+  }
+  await prisma.user.update({
+    where: { id: userId },
+    data: { twoFactor: true },
+  });
+  revalidatePath("/dashboard/settings");
+  return { ok: true as const };
+}
+
+/** Turns 2FA off. Requires the account password to authorise the change. */
+export async function disableTwoFactor(password: unknown) {
+  const userId = await requireUserId();
+  const pw = typeof password === "string" ? password : "";
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { passwordHash: true, twoFactor: true },
+  });
+  if (!user) return { ok: false as const, error: "User not found" };
+  if (!user.passwordHash) {
+    return {
+      ok: false as const,
+      error: "This account has no password, so two-factor can't be managed here.",
+    };
+  }
+  if (!(await bcrypt.compare(pw, user.passwordHash))) {
+    return { ok: false as const, error: "Password is incorrect" };
+  }
+  await prisma.user.update({
+    where: { id: userId },
+    data: { twoFactor: false, twoFactorSecret: null },
+  });
   revalidatePath("/dashboard/settings");
   return { ok: true as const };
 }

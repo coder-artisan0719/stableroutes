@@ -34,13 +34,16 @@ export default async function AdminOverview() {
       prisma.transaction.findMany({
         orderBy: { createdAt: "desc" },
         take: 6,
-        include: { user: true, profile: true },
+        include: {
+          user: { select: { email: true } },
+          profile: { select: { firstName: true, lastName: true } },
+        },
       }),
       prisma.customerProfile.findMany({
         where: { status: "PENDING" },
         orderBy: { createdAt: "asc" },
         take: 5,
-        include: { user: true },
+        include: { user: { select: { email: true } } },
       }),
     ]);
 

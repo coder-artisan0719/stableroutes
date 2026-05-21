@@ -27,7 +27,7 @@ export default async function DashboardOverview() {
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 5,
-      include: { profile: true },
+      include: { profile: { select: { firstName: true, lastName: true } } },
     }),
     prisma.transaction.groupBy({
       by: ["status"],

@@ -23,16 +23,15 @@ export default async function TransactionsPage({
   const session = await requireCustomer();
   const userId = session.user.id;
 
-  const totalAll = await prisma.transaction.count({ where: { userId } });
-
   const fromStr = validDateStr(searchParams.from);
   const toStr = validDateStr(searchParams.to);
   const fromDate = fromStr ? new Date(`${fromStr}T00:00:00`) : undefined;
   const toDate = toStr ? new Date(`${toStr}T23:59:59.999`) : undefined;
+  const isFiltered = Boolean(fromDate || toDate);
 
   const where: Prisma.TransactionWhereInput = {
     userId,
-    ...(fromDate || toDate
+    ...(isFiltered
       ? {
           createdAt: {
             ...(fromDate ? { gte: fromDate } : {}),
@@ -43,20 +42,24 @@ export default async function TransactionsPage({
   };
 
   const pageSize = parsePageSize(searchParams.pageSize);
-  const total = await prisma.transaction.count({ where });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(
-    Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1),
-    totalPages,
-  );
+  const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
 
-  const transactions = await prisma.transaction.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    include: { profile: true },
-    take: pageSize,
-    skip: (page - 1) * pageSize,
-  });
+  // One parallel round-trip: page rows, the filtered count (only when a filter
+  // is active), and the unfiltered total (drives the page-level empty state).
+  const [transactions, filteredCount, totalAll] = await Promise.all([
+    prisma.transaction.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: { profile: true },
+      take: pageSize,
+      skip: (page - 1) * pageSize,
+    }),
+    isFiltered ? prisma.transaction.count({ where }) : Promise.resolve(null),
+    prisma.transaction.count({ where: { userId } }),
+  ]);
+
+  const total = filteredCount ?? totalAll;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="space-y-6">

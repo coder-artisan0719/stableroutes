@@ -534,9 +534,7 @@ function ProfilesTable({
                     </div>
                   ) : (
                     <span className="text-sm text-muted-foreground">
-                      {p.status === "REJECTED"
-                        ? "Not approved"
-                        : "Pending approval"}
+                      {p.status === "REJECTED" ? "Not approved" : "Pending"}
                     </span>
                   )}
                 </div>
