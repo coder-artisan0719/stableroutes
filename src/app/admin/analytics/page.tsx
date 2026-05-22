@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowDownUp, BadgeCheck, Users } from "lucide-react";
+import { ArrowDownUp, BadgeCheck, Coins, Users } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
 import { Card, CardContent } from "@/components/ui/card";
@@ -98,8 +98,11 @@ export default async function AdminAnalyticsPage({
   type Agg = { count: number; balance: number };
   const byCustomer = new Map<string, Agg>();
   let totalBalance = 0;
+  let totalVolume = 0;
 
   for (const t of txns) {
+    // Gross transferred amount, before the commission fee is deducted.
+    totalVolume += t.amountCents;
     // Net amount the customer receives after the commission fee is deducted.
     const netCents = Math.round(t.amountCents * (1 - t.commissionPct / 100));
     totalBalance += netCents;
@@ -124,6 +127,12 @@ export default async function AdminAnalyticsPage({
       value: String(txns.length),
       sub: "Settled transfers",
       icon: ArrowDownUp,
+    },
+    {
+      label: "Total volume",
+      value: formatUSD(totalVolume),
+      sub: "Before commission",
+      icon: Coins,
     },
     {
       label: "Completed balance",
@@ -174,7 +183,7 @@ export default async function AdminAnalyticsPage({
         <AnalyticsRangeFilter from={fromStr} to={toStr} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (
           <Card key={s.label}>
             <CardContent className="flex items-center gap-4 p-5">

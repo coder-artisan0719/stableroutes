@@ -215,8 +215,9 @@ model Transaction {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  profile CustomerProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile     CustomerProfile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  expenseRate TransactionExpenseRate?
 
   // Composite indexes serve the filter + "ORDER BY createdAt DESC" together,
   // so paginated listings need no separate sort step. The leading column also
@@ -261,4 +262,16 @@ model Announcement {
   createdAt      DateTime         @default(now())
 
   @@index([createdAt])
+}
+
+/// Per-transaction expense (cost) rate used by the passcode-protected admin
+/// Revenue page. Kept in its own table so this sensitive cost data is never
+/// returned by ordinary transaction queries — it is only read on the Revenue
+/// page, and each transaction's rate is fully independent of the others.
+model TransactionExpenseRate {
+  transactionId String   @id
+  expensePct    Float    @default(0)
+  updatedAt     DateTime @updatedAt
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 }
