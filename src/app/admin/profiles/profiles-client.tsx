@@ -119,7 +119,7 @@ export function AdminProfilesClient({
     const ps = opts.pageSize ?? pageSize;
     if (ps !== 10) params.set("pageSize", String(ps));
     const v = opts.view ?? view;
-    if (v !== "grid") params.set("view", v);
+    if (v !== "table") params.set("view", v);
     const qs = params.toString();
     return qs ? `/admin/profiles?${qs}` : "/admin/profiles";
   }
@@ -167,18 +167,6 @@ export function AdminProfilesClient({
         </p>
         <div className="inline-flex self-start rounded-lg border bg-card p-0.5 sm:self-auto">
           <Link
-            href={hrefFor({ view: "grid", page: 1 })}
-            aria-label="Grid view"
-            className={cn(
-              "grid h-9 w-9 place-items-center rounded-md transition-colors",
-              view === "grid"
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent",
-            )}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </Link>
-          <Link
             href={hrefFor({ view: "table", page: 1 })}
             aria-label="List view"
             className={cn(
@@ -189,6 +177,18 @@ export function AdminProfilesClient({
             )}
           >
             <List className="h-4 w-4" />
+          </Link>
+          <Link
+            href={hrefFor({ view: "grid", page: 1 })}
+            aria-label="Grid view"
+            className={cn(
+              "grid h-9 w-9 place-items-center rounded-md transition-colors",
+              view === "grid"
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-accent",
+            )}
+          >
+            <LayoutGrid className="h-4 w-4" />
           </Link>
         </div>
       </div>
@@ -637,7 +637,9 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <DialogTitle className="truncate text-xl">
-              {profile.firstName} {profile.lastName}
+              {[profile.firstName, profile.middleName, profile.lastName]
+                .filter(Boolean)
+                .join(" ")}
             </DialogTitle>
             <DialogDescription>Sender: {profile.senderName}</DialogDescription>
           </div>
@@ -668,8 +670,12 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
             Profile
           </h3>
           <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
-            <Detail label="First name" value={profile.firstName} />
-            <Detail label="Last name" value={profile.lastName} />
+            <Detail
+              label="Full name"
+              value={[profile.firstName, profile.middleName, profile.lastName]
+                .filter(Boolean)
+                .join(" ")}
+            />
             <Detail label="Sender name" value={profile.senderName} />
             <div className="flex items-center justify-between gap-3 py-2">
               <dt className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">

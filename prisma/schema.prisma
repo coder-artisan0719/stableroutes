@@ -156,6 +156,8 @@ model CustomerProfile {
   id                String        @id @default(cuid())
   userId            String
   firstName         String
+  /// Optional — part of the account holder's legal name.
+  middleName        String?
   lastName          String
   senderName        String
   /// Bank account currency the customer requested for this profile.

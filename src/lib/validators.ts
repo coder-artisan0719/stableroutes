@@ -53,6 +53,8 @@ const evmAddress = z
 // withdrawal address. Bank details come later from admin at approval time.
 export const profileSchema = z.object({
   firstName: z.string().min(1, "First name is required").max(60),
+  // Optional — part of the legal name.
+  middleName: z.string().trim().max(60).optional(),
   lastName: z.string().min(1, "Last name is required").max(60),
   senderName: z.string().min(1, "Sender name is required").max(120),
   accountCurrency: z.enum(["USD", "EUR", "GBP", "CAD"]),

@@ -791,7 +791,12 @@ function ProfileViewDialog({
             Profile
           </h3>
           <dl className="divide-y divide-border/60 rounded-lg border bg-muted/20 px-3">
-            <Detail label="Full name" value={`${profile.firstName} ${profile.lastName}`} />
+            <Detail
+              label="Full name"
+              value={[profile.firstName, profile.middleName, profile.lastName]
+                .filter(Boolean)
+                .join(" ")}
+            />
             <Detail label="Sender name" value={profile.senderName} />
             <div className="flex items-center justify-between gap-3 py-2">
               <dt className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">
@@ -919,13 +924,25 @@ function ProfileDialog({ onDone }: { onDone: () => void }) {
         </DialogDescription>
       </DialogHeader>
       <form onSubmit={onSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="firstName">First name</Label>
             <Input id="firstName" {...register("firstName")} />
             {errors.firstName && (
               <p className="text-xs text-destructive">
                 {errors.firstName.message}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="middleName">
+              Middle name{" "}
+              <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Input id="middleName" {...register("middleName")} />
+            {errors.middleName && (
+              <p className="text-xs text-destructive">
+                {errors.middleName.message}
               </p>
             )}
           </div>
