@@ -14,12 +14,16 @@ import {
 } from "@/lib/validators";
 import {
   sendAccountStatusEmail,
-  sendAnnouncementToAllCustomers,
+  sendCustomerAnnouncement,
   sendCredentialsUpdatedEmail,
   sendProfileStatusEmail,
   sendTransactionStatusEmail,
 } from "@/lib/email";
 import { createCustomerNotification } from "@/lib/notifications";
+import {
+  effectiveCommissionPct,
+  referralDiscountForUser,
+} from "@/lib/referral";
 import { formatUSD } from "@/lib/utils";
 
 async function requireAdminId() {
@@ -144,13 +148,20 @@ export async function adminCreateTransaction(input: unknown) {
     parsed.data.scheduledFor instanceof Date &&
     parsed.data.scheduledFor.getTime() > now.getTime();
 
+  // Snapshot the effective commission: the profile's base rate minus any
+  // referral discount the customer has earned (capped so it can't go below 0%).
+  const referralDiscount = await referralDiscountForUser(profile.userId);
+  const commissionPct = effectiveCommissionPct(
+    profile.commissionPct,
+    referralDiscount,
+  );
+
   const tx = await prisma.transaction.create({
     data: {
       userId: profile.userId,
       profileId: profile.id,
       amountCents: parsed.data.amountCents,
-      // Snapshot the profile's current commission rate onto the transaction.
-      commissionPct: profile.commissionPct,
+      commissionPct,
       type: parsed.data.type,
       senderName: parsed.data.senderName,
       description: parsed.data.description,
@@ -236,14 +247,50 @@ export async function sendAnnouncement(input: unknown) {
     };
   }
 
-  const sent = await sendAnnouncementToAllCustomers({
+  const sent = await sendCustomerAnnouncement({
     type: parsed.data.type,
     subject: parsed.data.subject,
     message: parsed.data.message,
     scheduledLabel: parsed.data.scheduledLabel ?? null,
+    recipientIds: parsed.data.recipientIds,
   });
 
+  // Record it in the announcement history (best-effort — never fail the send).
+  try {
+    await prisma.announcement.create({
+      data: {
+        type: parsed.data.type,
+        subject: parsed.data.subject,
+        message: parsed.data.message,
+        scheduledLabel: parsed.data.scheduledLabel ?? null,
+        recipientCount: sent,
+      },
+    });
+  } catch (err) {
+    console.error("[announcement] failed to record history:", err);
+  }
+
+  revalidatePath("/admin/announcements");
   return { ok: true as const, sent };
+}
+
+/** Removes the selected announcements from the history (admin bulk-delete). */
+export async function adminDeleteAnnouncements(ids: unknown) {
+  await requireAdminId();
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.some((id) => typeof id !== "string")
+  ) {
+    return { ok: false as const, error: "No announcements selected" };
+  }
+
+  const { count } = await prisma.announcement.deleteMany({
+    where: { id: { in: ids as string[] } },
+  });
+
+  revalidatePath("/admin/announcements");
+  return { ok: true as const, deleted: count };
 }
 
 export async function adminUpdateCustomerCredentials(input: unknown) {
@@ -415,6 +462,7 @@ export async function setTransactionStatus(input: unknown) {
     REFUNDED: "Transfer refunded",
     SCHEDULED: "Transfer scheduled",
     PENDING: "Transfer pending",
+    CANCELLED: "Transfer cancelled",
   };
   void createCustomerNotification({
     userId: updated.user.id,
@@ -428,4 +476,26 @@ export async function setTransactionStatus(input: unknown) {
   revalidatePath("/admin/transactions");
   revalidatePath("/admin");
   return { ok: true as const };
+}
+
+/** Permanently deletes the selected transactions (admin bulk-delete). */
+export async function adminDeleteTransactions(ids: unknown) {
+  await requireAdminId();
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.some((id) => typeof id !== "string")
+  ) {
+    return { ok: false as const, error: "No transactions selected" };
+  }
+
+  const { count } = await prisma.transaction.deleteMany({
+    where: { id: { in: ids as string[] } },
+  });
+
+  revalidatePath("/admin/transactions");
+  revalidatePath("/admin");
+  revalidatePath("/dashboard/transactions");
+  revalidatePath("/dashboard");
+  return { ok: true as const, deleted: count };
 }

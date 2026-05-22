@@ -10,7 +10,16 @@ import { SignupForm } from "./signup-form";
 
 export const metadata = { title: "Create account" };
 
-export default function SignupPage() {
+export default function SignupPage({
+  searchParams,
+}: {
+  searchParams: { ref?: string };
+}) {
+  const referralCode =
+    typeof searchParams.ref === "string" && searchParams.ref.trim()
+      ? searchParams.ref.trim().toUpperCase()
+      : undefined;
+
   return (
     <Card>
       <CardHeader className="text-center">
@@ -20,7 +29,7 @@ export default function SignupPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <SignupForm />
+        <SignupForm referralCode={referralCode} />
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
           <Link href="/login" className="font-medium text-primary hover:underline">

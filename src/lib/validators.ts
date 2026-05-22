@@ -110,13 +110,15 @@ export const blockCustomerSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-// Admin broadcasts an announcement email to every customer.
+// Admin broadcasts an announcement email to customers.
 export const announcementSchema = z.object({
   type: z.enum(["FEATURE", "MAINTENANCE", "GENERAL"]),
   subject: z.string().trim().min(3, "Subject is too short").max(160),
   message: z.string().trim().min(10, "Message is too short").max(4000),
   // Pre-formatted, human-readable time (e.g. a maintenance window). Optional.
   scheduledLabel: z.string().trim().max(120).optional(),
+  // Specific recipient customer IDs. Omitted/empty → send to all customers.
+  recipientIds: z.array(z.string()).max(10000).optional(),
 });
 
 // Admin updates a customer's sign-in email and/or password.
@@ -142,7 +144,13 @@ const evmTxHash = z
 
 export const transactionStatusSchema = z.object({
   id: z.string().min(1),
-  status: z.enum(["SCHEDULED", "PENDING", "COMPLETED", "REFUNDED"]),
+  status: z.enum([
+    "SCHEDULED",
+    "PENDING",
+    "COMPLETED",
+    "REFUNDED",
+    "CANCELLED",
+  ]),
   refundReason: z.string().max(500).optional(),
   adminNote: z.string().max(500).optional(),
   txHash: evmTxHash.optional(),

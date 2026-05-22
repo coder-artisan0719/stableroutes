@@ -32,6 +32,7 @@ enum TransactionStatus {
   PENDING
   COMPLETED
   REFUNDED
+  CANCELLED
 }
 
 enum TransactionType {
@@ -59,6 +60,12 @@ enum NotificationChannel {
   IN_APP
 }
 
+enum AnnouncementType {
+  FEATURE
+  MAINTENANCE
+  GENERAL
+}
+
 // -----------------------------------------------------------------------------
 // Auth (NextAuth + custom fields)
 // -----------------------------------------------------------------------------
@@ -82,6 +89,11 @@ model User {
   blockedReason String?
   blockedAt     DateTime?
 
+  // Referral program: each user has their own shareable code, and may have
+  // been referred by another user (set at signup from a ?ref= code).
+  referralCode  String?   @unique
+  referredById  String?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -91,7 +103,11 @@ model User {
   accounts     Account[]
   notifications Notification[]
 
+  referredBy   User?  @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals    User[] @relation("UserReferrals")
+
   @@index([role])
+  @@index([referredById])
 }
 
 model Account {
@@ -179,8 +195,9 @@ model Transaction {
   profileId     String
   amountCents   Int
   currency      String            @default("USD")
-  /// Commission fee applied to this transfer, as a whole percent (e.g. 5 = 5%).
-  commissionPct Int               @default(0)
+  /// Effective commission for this transfer as a percent (e.g. 4.5 = 4.5%).
+  /// Snapshotted at creation: the profile's base rate minus any referral discount.
+  commissionPct Float             @default(0)
   type          TransactionType
   status        TransactionStatus @default(PENDING)
   senderName    String
@@ -226,4 +243,20 @@ model Notification {
   @@index([userId])
   @@index([userId, channel])
   @@index([sentAt])
+}
+
+/// A broadcast announcement sent to customers from the admin panel — kept as a
+/// history record of what was sent, when, and to how many recipients.
+model Announcement {
+  id             String           @id @default(cuid())
+  type           AnnouncementType
+  subject        String
+  message        String           @db.Text
+  /// Optional human-readable time included in the announcement (e.g. a window).
+  scheduledLabel String?
+  /// How many customers it was emailed to.
+  recipientCount Int              @default(0)
+  createdAt      DateTime         @default(now())
+
+  @@index([createdAt])
 }

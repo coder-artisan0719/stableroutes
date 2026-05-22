@@ -23,6 +23,13 @@ export async function POST(request: Request) {
 
   const email = parsed.data.email.toLowerCase();
 
+  // Optional referral code from a ?ref= link — attributed best-effort below.
+  const refRaw = (payload as { referralCode?: unknown }).referralCode;
+  const referralCode =
+    typeof refRaw === "string" && refRaw.trim()
+      ? refRaw.trim().toUpperCase()
+      : null;
+
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     if (existing.emailVerified) {
@@ -56,6 +63,24 @@ export async function POST(request: Request) {
       // emailVerified stays null until the code is consumed.
     },
   });
+
+  // Best-effort referral attribution — never block signup if it fails.
+  if (referralCode) {
+    try {
+      const referrer = await prisma.user.findUnique({
+        where: { referralCode },
+        select: { id: true },
+      });
+      if (referrer && referrer.id !== user.id) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { referredById: referrer.id },
+        });
+      }
+    } catch (err) {
+      console.error("[signup] referral attribution failed:", err);
+    }
+  }
 
   const code = await issueVerificationCode(email);
   void sendVerificationCodeEmail({

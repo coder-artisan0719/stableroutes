@@ -8,12 +8,15 @@ import { toast } from "sonner";
 import {
   Check,
   Clock,
+  ListChecks,
   Loader2,
   Lock,
   MoreHorizontal,
   Plus,
+  Trash2,
   Undo2,
   X,
+  XCircle,
 } from "lucide-react";
 import type { Transaction, TransactionStatus } from "@prisma/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,7 +58,11 @@ import {
 } from "@/components/ui/dialog";
 import { TransactionStatusBadge } from "@/components/status-badge";
 import { formatDateTime, formatUSD, truncateMiddle } from "@/lib/utils";
-import { adminCreateTransaction, setTransactionStatus } from "../actions";
+import {
+  adminCreateTransaction,
+  adminDeleteTransactions,
+  setTransactionStatus,
+} from "../actions";
 
 type Row = Transaction & {
   userEmail: string;
@@ -80,6 +87,7 @@ const TABS = [
   { key: "PENDING", label: "Pending" },
   { key: "COMPLETED", label: "Completed" },
   { key: "REFUNDED", label: "Refunded" },
+  { key: "CANCELLED", label: "Cancelled" },
 ] as const;
 
 export function AdminTransactionsClient({
@@ -102,6 +110,46 @@ export function AdminTransactionsClient({
   const [reason, setReason] = useState("");
   const [txHash, setTxHash] = useState("");
   const [pending, startTransition] = useTransition();
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletePending, startDeleteTransition] = useTransition();
+
+  const allSelected =
+    transactions.length > 0 && transactions.every((t) => selected.has(t.id));
+
+  const toggleRow = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleAll = () =>
+    setSelected(
+      allSelected ? new Set() : new Set(transactions.map((t) => t.id)),
+    );
+
+  const exitSelection = () => {
+    setSelectionMode(false);
+    setSelected(new Set());
+  };
+
+  const deleteSelected = () => {
+    startDeleteTransition(async () => {
+      const res = await adminDeleteTransactions([...selected]);
+      if (res.ok) {
+        toast.success(
+          `${res.deleted} transaction${res.deleted === 1 ? "" : "s"} deleted.`,
+        );
+        setConfirmDelete(false);
+        exitSelection();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
 
   const submit = () => {
     if (!editing) return;
@@ -157,19 +205,51 @@ export function AdminTransactionsClient({
             </Link>
           ))}
         </div>
-        <Dialog open={creating} onOpenChange={setCreating}>
-          <DialogTrigger asChild>
-            <Button disabled={approvedProfiles.length === 0}>
-              <Plus /> New payment
-            </Button>
-          </DialogTrigger>
-          {creating && (
-            <NewPaymentDialog
-              profiles={approvedProfiles}
-              onDone={() => setCreating(false)}
-            />
+        <div className="flex items-center gap-2">
+          {selectionMode ? (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {selected.size} selected
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={selected.size === 0}
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+              <Button variant="outline" size="sm" onClick={exitSelection}>
+                <X className="h-4 w-4" /> Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              {transactions.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectionMode(true)}
+                >
+                  <ListChecks className="h-4 w-4" /> Select
+                </Button>
+              )}
+              <Dialog open={creating} onOpenChange={setCreating}>
+                <DialogTrigger asChild>
+                  <Button disabled={approvedProfiles.length === 0}>
+                    <Plus /> New payment
+                  </Button>
+                </DialogTrigger>
+                {creating && (
+                  <NewPaymentDialog
+                    profiles={approvedProfiles}
+                    onDone={() => setCreating(false)}
+                  />
+                )}
+              </Dialog>
+            </>
           )}
-        </Dialog>
+        </div>
       </div>
 
       {approvedProfiles.length === 0 && (
@@ -189,6 +269,17 @@ export function AdminTransactionsClient({
             <Table>
               <TableHeader>
                 <TableRow>
+                  {selectionMode && (
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        aria-label="Select all transactions"
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Date</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Profile</TableHead>
@@ -202,6 +293,17 @@ export function AdminTransactionsClient({
               <TableBody>
                 {transactions.map((t) => (
                   <TableRow key={t.id}>
+                    {selectionMode && (
+                      <TableCell className="w-10">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(t.id)}
+                          onChange={() => toggleRow(t.id)}
+                          aria-label="Select transaction"
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                       {formatDateTime(t.createdAt)}
                     </TableCell>
@@ -262,7 +364,14 @@ export function AdminTransactionsClient({
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Set status</DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            {(["PENDING", "COMPLETED", "REFUNDED"] as const)
+                            {(
+                              [
+                                "PENDING",
+                                "COMPLETED",
+                                "REFUNDED",
+                                "CANCELLED",
+                              ] as const
+                            )
                               .filter((s) => s !== t.status)
                               .map((s) => (
                                 <DropdownMenuItem
@@ -279,6 +388,9 @@ export function AdminTransactionsClient({
                                   )}
                                   {s === "REFUNDED" && (
                                     <Undo2 className="h-4 w-4 text-destructive" />
+                                  )}
+                                  {s === "CANCELLED" && (
+                                    <XCircle className="h-4 w-4 text-muted-foreground" />
                                   )}
                                   Mark as {s.toLowerCase()}
                                 </DropdownMenuItem>
@@ -366,6 +478,39 @@ export function AdminTransactionsClient({
             >
               {pending && <Loader2 className="animate-spin" />}
               Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmDelete}
+        onOpenChange={(v) => !v && setConfirmDelete(false)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Delete {selected.size} transaction
+              {selected.size === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              This permanently removes{" "}
+              {selected.size === 1 ? "this transaction" : "these transactions"}{" "}
+              from the admin panel and the customers&apos; transaction history.
+              This can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={deleteSelected}
+              disabled={deletePending}
+            >
+              {deletePending && <Loader2 className="animate-spin" />}
+              <Trash2 className="h-4 w-4" /> Delete permanently
             </Button>
           </DialogFooter>
         </DialogContent>

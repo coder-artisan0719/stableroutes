@@ -149,7 +149,9 @@ export async function sendTransactionStatusEmail(args: {
         ? "Your transfer was refunded"
         : transaction.status === "SCHEDULED"
           ? "Your transfer is scheduled"
-          : "Your transfer is pending";
+          : transaction.status === "CANCELLED"
+            ? "Your transfer was cancelled"
+            : "Your transfer is pending";
   return send({
     userId: user.id,
     to: user.email,
@@ -233,17 +235,25 @@ export async function sendAccountStatusEmail(args: {
 }
 
 /**
- * Broadcasts an announcement (new feature / maintenance) to every active
- * customer. Blocked accounts are skipped. Returns how many were emailed.
+ * Sends an announcement (new feature / maintenance) to customers — either all
+ * active customers, or only the given `recipientIds`. Blocked accounts are
+ * always skipped. Returns how many customers were emailed.
  */
-export async function sendAnnouncementToAllCustomers(args: {
+export async function sendCustomerAnnouncement(args: {
   type: "FEATURE" | "MAINTENANCE" | "GENERAL";
   subject: string;
   message: string;
   scheduledLabel?: string | null;
+  recipientIds?: string[];
 }) {
   const customers = await prisma.user.findMany({
-    where: { role: "CUSTOMER", blocked: false },
+    where: {
+      role: "CUSTOMER",
+      blocked: false,
+      ...(args.recipientIds && args.recipientIds.length > 0
+        ? { id: { in: args.recipientIds } }
+        : {}),
+    },
     select: { id: true, email: true, name: true },
   });
   for (const customer of customers) {

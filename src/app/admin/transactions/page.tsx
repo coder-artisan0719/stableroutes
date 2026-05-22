@@ -10,6 +10,7 @@ const STATUS_VALUES = [
   "PENDING",
   "COMPLETED",
   "REFUNDED",
+  "CANCELLED",
 ] as const;
 
 export default async function AdminTransactionsPage({
@@ -91,6 +92,7 @@ export default async function AdminTransactionsPage({
           PENDING: map.PENDING ?? 0,
           COMPLETED: map.COMPLETED ?? 0,
           REFUNDED: map.REFUNDED ?? 0,
+          CANCELLED: map.CANCELLED ?? 0,
         }}
       />
     </div>

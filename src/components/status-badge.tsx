@@ -6,6 +6,7 @@ import {
   Undo2,
   ShieldCheck,
   ShieldAlert,
+  XCircle,
 } from "lucide-react";
 import type { TransactionStatus, ProfileStatus } from "@prisma/client";
 
@@ -28,6 +29,13 @@ export function TransactionStatusBadge({ status }: { status: TransactionStatus }
     return (
       <Badge variant="default">
         <CalendarClock className="h-3 w-3" /> Scheduled
+      </Badge>
+    );
+  }
+  if (status === "CANCELLED") {
+    return (
+      <Badge variant="outline">
+        <XCircle className="h-3 w-3" /> Cancelled
       </Badge>
     );
   }

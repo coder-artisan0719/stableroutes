@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Gift,
   LayoutDashboard,
   Megaphone,
   Receipt,
@@ -23,6 +24,7 @@ const NAV: Record<PanelType, NavItem[]> = {
     { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/profiles", label: "Profiles", icon: UserCircle2 },
     { href: "/dashboard/transactions", label: "Transactions", icon: Receipt },
+    { href: "/dashboard/referrals", label: "Referrals", icon: Gift },
     { href: "/dashboard/settings", label: "Settings", icon: Settings },
   ],
   admin: [
@@ -31,6 +33,7 @@ const NAV: Record<PanelType, NavItem[]> = {
     { href: "/admin/transactions", label: "Transactions", icon: Receipt },
     { href: "/admin/customers", label: "Customers", icon: Users },
     { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
+    { href: "/admin/referrals", label: "Referrals", icon: Gift },
     { href: "/admin/settings", label: "Settings", icon: Settings },
   ],
 };

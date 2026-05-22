@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Gift, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { GoogleButton } from "@/components/google-button";
 import { signupSchema, type SignupInput } from "@/lib/validators";
 
-export function SignupForm() {
+export function SignupForm({ referralCode }: { referralCode?: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -29,7 +29,7 @@ export function SignupForm() {
       const res = await fetch("/api/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(referralCode ? { ...data, referralCode } : data),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -53,6 +53,17 @@ export function SignupForm() {
           <span className="bg-card px-2 text-muted-foreground">Or with email</span>
         </div>
       </div>
+
+      {referralCode && (
+        <div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/10 p-3 text-sm text-success">
+          <Gift className="h-4 w-4 shrink-0" />
+          <span>
+            You were referred with code{" "}
+            <strong className="font-mono">{referralCode}</strong> — you&apos;ll
+            be linked to your referrer.
+          </span>
+        </div>
+      )}
 
       <form onSubmit={onSubmit} className="space-y-4">
         {error && (

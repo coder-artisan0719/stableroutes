@@ -224,9 +224,11 @@ export function transactionStatusEmail({
       ? `Your transfer has settled successfully.`
       : transaction.status === "REFUNDED"
         ? `Your transfer has been refunded.${transaction.refundReason ? ` Reason: ${transaction.refundReason}.` : ""}`
-        : transaction.status === "SCHEDULED" && transaction.scheduledFor
-          ? `Your transfer is scheduled for <strong>${formatScheduledDate(new Date(transaction.scheduledFor))}</strong>. We'll process it automatically and email you again when it moves to Pending.`
-          : `Your transfer is being processed. We'll email you again when it moves to its next state.`;
+        : transaction.status === "CANCELLED"
+          ? `Your transfer has been cancelled and will not be processed. If you have any questions, please contact our support team.`
+          : transaction.status === "SCHEDULED" && transaction.scheduledFor
+            ? `Your transfer is scheduled for <strong>${formatScheduledDate(new Date(transaction.scheduledFor))}</strong>. We'll process it automatically and email you again when it moves to Pending.`
+            : `Your transfer is being processed. We'll email you again when it moves to its next state.`;
 
   const hashRow =
     transaction.status === "COMPLETED" && transaction.txHash
@@ -273,7 +275,7 @@ export function transactionStatusEmail({
   const tone: BannerTone =
     transaction.status === "COMPLETED"
       ? "green"
-      : transaction.status === "REFUNDED"
+      : transaction.status === "REFUNDED" || transaction.status === "CANCELLED"
         ? "red"
         : transaction.status === "SCHEDULED"
           ? "blue"
