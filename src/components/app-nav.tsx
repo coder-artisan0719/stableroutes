@@ -41,12 +41,18 @@ const NAV: Record<PanelType, NavItem[]> = {
   ],
 };
 
-export function SideNav({ panel }: { panel: PanelType }) {
+export function SideNav({
+  panel,
+  collapsed = false,
+}: {
+  panel: PanelType;
+  collapsed?: boolean;
+}) {
   const items = NAV[panel];
   const rootHref = items[0]?.href ?? "/";
   const pathname = usePathname() ?? "";
   return (
-    <nav className="flex-1 space-y-1 px-3">
+    <nav className={cn("flex-1 space-y-1", collapsed ? "px-2" : "px-3")}>
       {items.map((item) => {
         const isRoot = item.href === rootHref;
         const active = isRoot ? pathname === rootHref : pathname.startsWith(item.href);
@@ -54,15 +60,18 @@ export function SideNav({ panel }: { panel: PanelType }) {
           <Link
             key={item.href}
             href={item.href}
+            title={collapsed ? item.label : undefined}
+            aria-label={collapsed ? item.label : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+              "flex items-center rounded-lg text-sm font-medium transition-colors",
+              collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
               active
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
             <item.icon className="h-4 w-4" />
-            {item.label}
+            {!collapsed && item.label}
           </Link>
         );
       })}

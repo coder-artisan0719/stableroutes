@@ -13,7 +13,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, Settings, User as UserIcon } from "lucide-react";
-import { SideNav, MobileNav, type PanelType } from "@/components/app-nav";
+import { MobileNav, type PanelType } from "@/components/app-nav";
+import { SidebarShell } from "@/components/sidebar-shell";
 import {
   NotificationBell,
   type NotificationItem,
@@ -50,21 +51,12 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-muted/20">
-      <aside className="hidden w-64 shrink-0 border-r border-border bg-card md:flex md:flex-col">
-        <div className="flex h-16 items-center border-b border-border px-6">
-          <Logo size="sm" href={rootHref} />
-        </div>
-        <div className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {panelLabel}
-        </div>
-        <SideNav panel={panel} />
-        <div className="border-t border-border p-4 text-xs text-muted-foreground">
-          Signed in as
-          <div className="mt-1 truncate text-sm font-medium text-foreground">
-            {user.email}
-          </div>
-        </div>
-      </aside>
+      <SidebarShell
+        panel={panel}
+        panelLabel={panelLabel}
+        rootHref={rootHref}
+        userEmail={user.email}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur md:px-8">
