@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { SettingsForms } from "@/app/dashboard/settings/settings-forms";
 import { TwoFactorSection } from "@/app/dashboard/settings/two-factor-section";
+import { SignInHistory } from "@/components/sign-in-history";
 
 export const metadata = { title: "Admin settings" };
 
@@ -59,6 +60,19 @@ export default async function AdminSettingsPage() {
             enabled={user.twoFactor}
             hasPassword={user.passwordHash !== null}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent sign-ins</CardTitle>
+          <CardDescription>
+            Device and location for the last 10 times your admin account was
+            accessed. Investigate anything unfamiliar immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <SignInHistory userId={user.id} />
         </CardContent>
       </Card>
     </div>

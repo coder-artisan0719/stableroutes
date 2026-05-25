@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { SettingsForms } from "./settings-forms";
 import { TwoFactorSection } from "./two-factor-section";
+import { SignInHistory } from "@/components/sign-in-history";
 
 export const metadata = { title: "Settings" };
 
@@ -62,6 +63,20 @@ export default async function SettingsPage() {
             enabled={user.twoFactor}
             hasPassword={user.passwordHash !== null}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent sign-ins</CardTitle>
+          <CardDescription>
+            Device and location for the last 10 times your account was
+            accessed. Anything you don&apos;t recognise? Change your password
+            and enable two-factor authentication.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <SignInHistory userId={user.id} />
         </CardContent>
       </Card>
     </div>

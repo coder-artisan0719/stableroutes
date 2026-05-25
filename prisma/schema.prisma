@@ -102,6 +102,7 @@ model User {
   sessions     Session[]
   accounts     Account[]
   notifications Notification[]
+  loginEvents  LoginEvent[]
 
   referredBy   User?  @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
   referrals    User[] @relation("UserReferrals")
@@ -143,6 +144,27 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+/// Successful sign-in audit log — captures device + IP geolocation each time
+/// a user signs in so they (and admins) can spot unrecognised activity.
+model LoginEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  /// Auth provider used: "credentials", "google", etc.
+  provider  String
+  /// Human-friendly parse of the user agent, e.g. "Chrome on macOS".
+  device    String
+  userAgent String?  @db.Text
+  ip        String?
+  city      String?
+  region    String?
+  country   String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 // -----------------------------------------------------------------------------

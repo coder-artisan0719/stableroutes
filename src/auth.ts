@@ -7,6 +7,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import type { UserRole } from "@prisma/client";
 import { verifyTotp } from "@/lib/totp";
+import { recordLoginEvent } from "@/lib/login-events";
 import authConfig from "@/auth.config";
 
 declare module "next-auth" {
@@ -112,6 +113,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       }
       return true;
+    },
+  },
+  events: {
+    // Fires once per successful sign-in. We log device + IP geolocation so
+    // users can review where their account has been accessed from.
+    async signIn({ user, account }) {
+      if (!user?.id) return;
+      await recordLoginEvent({
+        userId: user.id,
+        provider: account?.provider ?? "credentials",
+      });
     },
   },
 });
