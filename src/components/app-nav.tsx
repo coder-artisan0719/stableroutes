@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   BarChart3,
   Gift,
   LayoutDashboard,
@@ -35,6 +36,7 @@ const NAV: Record<PanelType, NavItem[]> = {
     { href: "/admin/transactions", label: "Transactions", icon: Receipt },
     { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
     { href: "/admin/customers", label: "Customers", icon: Users },
+    { href: "/admin/sign-ins", label: "Sign-ins", icon: Activity },
     { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
     { href: "/admin/referrals", label: "Referrals", icon: Gift },
     { href: "/admin/settings", label: "Settings", icon: Settings },
