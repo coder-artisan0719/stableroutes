@@ -12,13 +12,19 @@ export function SignInsPagination({
   page,
   totalPages,
   pageSize,
+  q,
+  loc,
 }: {
   page: number;
   totalPages: number;
   pageSize: PageSize;
+  q?: string;
+  loc?: string;
 }) {
   const hrefFor = (p: number) => {
     const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (loc) params.set("loc", loc);
     if (p > 1) params.set("page", String(p));
     if (pageSize !== DEFAULT_PAGE_SIZE) {
       params.set("pageSize", String(pageSize));

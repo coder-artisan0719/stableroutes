@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
 import { parsePageSize } from "@/lib/page-size";
@@ -12,8 +13,9 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTime } from "@/lib/utils";
-import { formatLocation } from "@/lib/login-events";
+import { formatLocation, geolocateIp } from "@/lib/login-events";
 import { SignInsPagination } from "./sign-ins-pagination";
+import { SignInsFilter } from "./sign-ins-filter";
 
 export const metadata = { title: "Sign-in activity" };
 
@@ -23,7 +25,12 @@ const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 export default async function AdminSignInsPage({
   searchParams,
 }: {
-  searchParams: { page?: string; pageSize?: string };
+  searchParams: {
+    page?: string;
+    pageSize?: string;
+    q?: string;
+    loc?: string;
+  };
 }) {
   await requireAdmin();
 
@@ -31,8 +38,51 @@ export default async function AdminSignInsPage({
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const activeSince = new Date(Date.now() - ACTIVE_WINDOW_MS);
 
+  const q = searchParams.q?.trim() || undefined;
+  const loc = searchParams.loc?.trim() || undefined;
+  const isFiltered = Boolean(q || loc);
+
+  // Build the filter as an AND chain so name and location act as independent
+  // constraints when both are set, each one OR-ing across the fields it spans.
+  const conditions: Prisma.LoginEventWhereInput[] = [];
+  if (q) {
+    conditions.push({
+      OR: [
+        { user: { name: { contains: q, mode: "insensitive" } } },
+        { user: { email: { contains: q, mode: "insensitive" } } },
+        {
+          user: {
+            profiles: {
+              some: { firstName: { contains: q, mode: "insensitive" } },
+            },
+          },
+        },
+        {
+          user: {
+            profiles: {
+              some: { lastName: { contains: q, mode: "insensitive" } },
+            },
+          },
+        },
+      ],
+    });
+  }
+  if (loc) {
+    conditions.push({
+      OR: [
+        { city: { contains: loc, mode: "insensitive" } },
+        { region: { contains: loc, mode: "insensitive" } },
+        { country: { contains: loc, mode: "insensitive" } },
+      ],
+    });
+  }
+  const where: Prisma.LoginEventWhereInput = conditions.length
+    ? { AND: conditions }
+    : {};
+
   const [events, total, activeRows] = await Promise.all([
     prisma.loginEvent.findMany({
+      where,
       orderBy: { createdAt: "desc" },
       take: pageSize,
       skip: (page - 1) * pageSize,
@@ -53,7 +103,7 @@ export default async function AdminSignInsPage({
         },
       },
     }),
-    prisma.loginEvent.count(),
+    prisma.loginEvent.count({ where }),
     prisma.loginEvent.groupBy({
       by: ["userId"],
       where: { createdAt: { gte: activeSince } },
@@ -61,6 +111,55 @@ export default async function AdminSignInsPage({
   ]);
 
   const activeUserIds = new Set(activeRows.map((r) => r.userId));
+
+  // Backfill: any rows on this page that have an IP but no country get
+  // looked up now, deduped by IP and capped so a slow API can't stall the
+  // page. The result is also persisted to the DB so future loads are
+  // instant and the country never reverts to "Unknown".
+  const ipsToResolve = Array.from(
+    new Set(
+      events
+        .filter((e) => !e.country && e.ip)
+        .map((e) => e.ip as string),
+    ),
+  ).slice(0, 10);
+
+  if (ipsToResolve.length > 0) {
+    const lookups = await Promise.all(
+      ipsToResolve.map(async (ip) => ({ ip, geo: await geolocateIp(ip) })),
+    );
+    const byIp = new Map(lookups.map((l) => [l.ip, l.geo]));
+
+    // Persist successful lookups: update every event with that IP that's
+    // still missing a country, not just the rows currently visible.
+    await Promise.all(
+      lookups
+        .filter((l) => l.geo.country)
+        .map((l) =>
+          prisma.loginEvent.updateMany({
+            where: { ip: l.ip, country: null },
+            data: {
+              city: l.geo.city ?? null,
+              region: l.geo.region ?? null,
+              country: l.geo.country ?? null,
+            },
+          }),
+        ),
+    );
+
+    // Mutate the events we'll render so the resolved location appears now.
+    for (const e of events) {
+      if (!e.country && e.ip) {
+        const g = byIp.get(e.ip);
+        if (g?.country) {
+          e.city = g.city ?? null;
+          e.region = g.region ?? null;
+          e.country = g.country ?? null;
+        }
+      }
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const startIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endIdx = Math.min(page * pageSize, total);
@@ -78,11 +177,15 @@ export default async function AdminSignInsPage({
         </p>
       </div>
 
+      <SignInsFilter q={q} loc={loc} />
+
       <Card>
         <CardContent className="p-0">
           {events.length === 0 ? (
             <div className="px-6 py-12 text-center text-sm text-muted-foreground">
-              No sign-ins recorded yet.
+              {isFiltered
+                ? "No sign-ins match the current filters."
+                : "No sign-ins recorded yet."}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -147,8 +250,20 @@ export default async function AdminSignInsPage({
                             country: e.country,
                           })}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {e.ip ?? "—"}
+                        <TableCell className="font-mono text-xs">
+                          {e.ip ? (
+                            <a
+                              href={`https://whatismyipaddress.com/ip/${encodeURIComponent(e.ip)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Look up this IP on whatismyipaddress.com"
+                              className="text-primary hover:underline"
+                            >
+                              {e.ip}
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -169,6 +284,8 @@ export default async function AdminSignInsPage({
             page={page}
             totalPages={totalPages}
             pageSize={pageSize}
+            q={q}
+            loc={loc}
           />
         </div>
       )}

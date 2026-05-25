@@ -45,7 +45,7 @@ function isLocalIp(ip: string): boolean {
   return false;
 }
 
-type GeoLookup = {
+export type GeoLookup = {
   ip?: string;
   city?: string;
   region?: string;
@@ -53,16 +53,114 @@ type GeoLookup = {
 };
 
 /**
- * Resolve the client's public IP + location via free public APIs. Used as a
- * fallback when Vercel's geo headers aren't present (local dev, non-Vercel
- * deployments). Bounded by short timeouts so a slow API can't block sign-in.
+ * Look up location for a single IP via a chain of free geolocation APIs.
+ * Tries ipwho.is, then ipapi.co, then ip-api.com so a single provider being
+ * down or rate-limiting doesn't leave the country blank. Each call is
+ * bounded by a short timeout. Returns whatever fields the first successful
+ * provider yielded (empty object if all fail or the IP is non-routable).
+ */
+export async function geolocateIp(ip: string): Promise<GeoLookup> {
+  if (!ip || isLocalIp(ip)) return {};
+  const encoded = encodeURIComponent(ip);
+
+  // Provider 1: ipwho.is — free, no key, commercial OK.
+  try {
+    const res = await fetch(`https://ipwho.is/${encoded}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const d = (await res.json()) as {
+        success?: boolean;
+        ip?: string;
+        city?: string;
+        region?: string;
+        country?: string;
+      };
+      if (d.success && d.country) {
+        return {
+          ip: d.ip ?? ip,
+          city: d.city || undefined,
+          region: d.region || undefined,
+          country: d.country,
+        };
+      }
+    }
+  } catch {
+    // fall through to next provider
+  }
+
+  // Provider 2: ipapi.co — free 1k/day, HTTPS, no key.
+  try {
+    const res = await fetch(`https://ipapi.co/${encoded}/json/`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const d = (await res.json()) as {
+        ip?: string;
+        city?: string;
+        region?: string;
+        country_name?: string;
+        error?: boolean;
+      };
+      if (!d.error && d.country_name) {
+        return {
+          ip: d.ip ?? ip,
+          city: d.city || undefined,
+          region: d.region || undefined,
+          country: d.country_name,
+        };
+      }
+    }
+  } catch {
+    // fall through to next provider
+  }
+
+  // Provider 3: ip-api.com — free, HTTP only on the free plan.
+  try {
+    const res = await fetch(
+      `http://ip-api.com/json/${encoded}?fields=status,country,regionName,city,query`,
+      {
+        cache: "no-store",
+        signal: AbortSignal.timeout(3000),
+      },
+    );
+    if (res.ok) {
+      const d = (await res.json()) as {
+        status?: string;
+        country?: string;
+        regionName?: string;
+        city?: string;
+        query?: string;
+      };
+      if (d.status === "success" && d.country) {
+        return {
+          ip: d.query ?? ip,
+          city: d.city || undefined,
+          region: d.regionName || undefined,
+          country: d.country,
+        };
+      }
+    }
+  } catch {
+    // give up
+  }
+
+  return { ip };
+}
+
+/**
+ * Resolve location for the incoming request. First tries to learn the public
+ * client IP (server egress in local dev), then geolocates via the provider
+ * chain. Used at sign-in time when Vercel's geo headers aren't present.
  */
 async function resolveGeo(initialIp: string | undefined): Promise<GeoLookup> {
   let ip = initialIp;
 
-  // If we only have a private/loopback IP (typical in local dev), ask a
-  // public service for the server's egress IP — that's at least closer to
-  // "where the request came from" than "::1".
+  // Private/loopback addresses are useless for geolocation. In local dev
+  // x-forwarded-for is usually absent, so ask a public service for the
+  // server's egress IP — that's at least the right hemisphere.
   if (!ip || isLocalIp(ip)) {
     try {
       const res = await fetch("https://api.ipify.org?format=json", {
@@ -78,32 +176,11 @@ async function resolveGeo(initialIp: string | undefined): Promise<GeoLookup> {
     }
   }
 
-  if (!ip || isLocalIp(ip)) return {};
+  if (!ip) return {};
+  if (isLocalIp(ip)) return { ip };
 
-  try {
-    // ipwho.is is free, requires no API key, and allows commercial use.
-    const res = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!res.ok) return { ip };
-    const data = (await res.json()) as {
-      success?: boolean;
-      ip?: string;
-      city?: string;
-      region?: string;
-      country?: string;
-    };
-    if (!data.success) return { ip };
-    return {
-      ip: data.ip ?? ip,
-      city: data.city,
-      region: data.region,
-      country: data.country,
-    };
-  } catch {
-    return { ip };
-  }
+  const geo = await geolocateIp(ip);
+  return { ip: geo.ip ?? ip, city: geo.city, region: geo.region, country: geo.country };
 }
 
 /**
