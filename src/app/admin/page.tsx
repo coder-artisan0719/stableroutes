@@ -1,6 +1,8 @@
 import Link from "next/link";
 import {
+  AlertTriangle,
   Banknote,
+  ClipboardList,
   Clock,
   ShieldAlert,
   Undo2,
@@ -22,30 +24,57 @@ export const metadata = { title: "Admin Overview" };
 export default async function AdminOverview() {
   await requireAdmin();
 
-  const [txTotals, pendingProfiles, customers, recentTx, pendingProfilesList] =
-    await Promise.all([
-      prisma.transaction.groupBy({
-        by: ["status"],
-        _sum: { amountCents: true },
-        _count: true,
-      }),
-      prisma.customerProfile.count({ where: { status: "PENDING" } }),
-      prisma.user.count({ where: { role: "CUSTOMER" } }),
-      prisma.transaction.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 6,
-        include: {
-          user: { select: { email: true } },
-          profile: { select: { firstName: true, lastName: true } },
-        },
-      }),
-      prisma.customerProfile.findMany({
-        where: { status: "PENDING" },
-        orderBy: { createdAt: "asc" },
-        take: 5,
-        include: { user: { select: { email: true } } },
-      }),
-    ]);
+  const [
+    txTotals,
+    pendingProfiles,
+    customers,
+    recentTx,
+    pendingProfilesList,
+    openTaskCount,
+    overdueTaskCount,
+    openTasksList,
+  ] = await Promise.all([
+    prisma.transaction.groupBy({
+      by: ["status"],
+      _sum: { amountCents: true },
+      _count: true,
+    }),
+    prisma.customerProfile.count({ where: { status: "PENDING" } }),
+    prisma.user.count({ where: { role: "CUSTOMER" } }),
+    prisma.transaction.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      include: {
+        user: { select: { email: true } },
+        profile: { select: { firstName: true, lastName: true } },
+      },
+    }),
+    prisma.customerProfile.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      take: 5,
+      include: { user: { select: { email: true } } },
+    }),
+    prisma.adminTask.count({ where: { status: "OPEN" } }),
+    prisma.adminTask.count({
+      where: { status: "OPEN", dueAt: { lt: new Date() } },
+    }),
+    prisma.adminTask.findMany({
+      where: { status: "OPEN" },
+      orderBy: [{ priority: "desc" }, { dueAt: "asc" }, { createdAt: "desc" }],
+      take: 5,
+      select: {
+        id: true,
+        title: true,
+        priority: true,
+        amountCents: true,
+        dueAt: true,
+        customerEmail: true,
+        profileName: true,
+        category: true,
+      },
+    }),
+  ]);
 
   const pending = txTotals.find((t) => t.status === "PENDING");
   const completed = txTotals.find((t) => t.status === "COMPLETED");
@@ -84,6 +113,18 @@ export default async function AdminOverview() {
       bg: "bg-primary/10",
       color: "text-primary",
     },
+    {
+      label: "Open tasks",
+      value: String(openTaskCount),
+      sub:
+        overdueTaskCount > 0
+          ? `${overdueTaskCount} overdue — action needed`
+          : "Queue is clear",
+      icon: overdueTaskCount > 0 ? AlertTriangle : ClipboardList,
+      bg: overdueTaskCount > 0 ? "bg-destructive/10" : "bg-primary/10",
+      color:
+        overdueTaskCount > 0 ? "text-destructive" : "text-primary",
+    },
   ];
 
   return (
@@ -97,7 +138,7 @@ export default async function AdminOverview() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {stats.map((s) => (
           <Card key={s.label}>
             <CardContent className="flex items-center gap-4 p-5">
@@ -205,6 +246,70 @@ export default async function AdminOverview() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            Open follow-up tasks
+            {overdueTaskCount > 0 && (
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                <AlertTriangle className="h-3 w-3" /> {overdueTaskCount} overdue
+              </span>
+            )}
+          </CardTitle>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/admin/tasks">
+              Open queue <ArrowUpRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {openTasksList.length === 0 ? (
+            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              No open tasks. Run <strong>Auto-detect</strong> from the Tasks
+              page to surface any payments or accounts that need follow-up.
+            </p>
+          ) : (
+            openTasksList.map((t) => {
+              const overdue = t.dueAt && t.dueAt.getTime() < Date.now();
+              return (
+                <Link
+                  key={t.id}
+                  href="/admin/tasks"
+                  className="block rounded-lg border bg-card p-3 transition-colors hover:bg-accent"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{t.title}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t.customerEmail ?? "—"}
+                        {t.profileName ? ` · ${t.profileName}` : ""}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      {t.amountCents != null && (
+                        <div className="text-sm font-semibold">
+                          {formatUSD(t.amountCents)}
+                        </div>
+                      )}
+                      <div
+                        className={`text-xs ${overdue ? "font-semibold text-destructive" : "text-muted-foreground"}`}
+                      >
+                        {t.dueAt
+                          ? `${overdue ? "Overdue · " : "Due "}${formatDateTime(
+                              t.dueAt,
+                            )}`
+                          : t.priority}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -123,8 +123,9 @@ export const announcementSchema = z.object({
   recipientIds: z.array(z.string()).max(10000).optional(),
 });
 
-// Admin updates a customer's sign-in email and/or password.
+// Admin updates a customer's sign-in email, password, and/or Telegram handle.
 // An empty/omitted password means "leave the current password unchanged".
+// An empty string for telegramId means "clear it"; omitted means "leave as is".
 export const adminUpdateCredentialsSchema = z.object({
   id: z.string().min(1),
   email: z.string().email("Enter a valid email").max(160),
@@ -133,6 +134,9 @@ export const adminUpdateCredentialsSchema = z.object({
       z.string().min(8, "Password must be at least 8 characters").max(128),
       z.literal(""),
     ])
+    .optional(),
+  telegramId: z
+    .union([z.string().trim().max(64), z.literal("")])
     .optional(),
 });
 export type AdminTransactionCreateInput = z.infer<
@@ -180,6 +184,67 @@ export const profileApprovalSchema = z.discriminatedUnion("status", [
     notes: z.string().max(500).optional(),
   }),
 ]);
+
+// ---------------------------------------------------------------------------
+// Admin tasks (follow-up queue)
+// ---------------------------------------------------------------------------
+
+export const adminTaskCategoryValues = [
+  "PAYMENT_HOLD",
+  "PENDING_CONFIRMATION",
+  "RESTRICTED_ACCOUNT",
+  "PROFILE_REVIEW",
+  "SCHEDULED_TRANSFER",
+  "REFUND_FOLLOWUP",
+  "COMPLIANCE_REVIEW",
+  "OTHER",
+] as const;
+
+export const adminTaskPriorityValues = [
+  "LOW",
+  "NORMAL",
+  "HIGH",
+  "URGENT",
+] as const;
+
+export const adminTaskCreateSchema = z.object({
+  title: z.string().trim().min(3, "Title is too short").max(160),
+  category: z.enum(adminTaskCategoryValues),
+  priority: z.enum(adminTaskPriorityValues).default("NORMAL"),
+  customerId: z.string().min(1).optional(),
+  profileId: z.string().min(1).optional(),
+  transactionId: z.string().min(1).optional(),
+  amountCents: z.number().int().nonnegative().max(10_000_000_00).optional(),
+  paidAt: z.coerce.date().optional(),
+  dueAt: z.coerce.date().optional(),
+  reason: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export const adminTaskUpdateSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(3).max(160).optional(),
+  category: z.enum(adminTaskCategoryValues).optional(),
+  priority: z.enum(adminTaskPriorityValues).optional(),
+  amountCents: z.number().int().nonnegative().max(10_000_000_00).nullable().optional(),
+  paidAt: z.coerce.date().nullable().optional(),
+  dueAt: z.coerce.date().nullable().optional(),
+  reason: z.string().trim().max(2000).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const adminTaskResolveSchema = z.object({
+  id: z.string().min(1),
+  resolutionNote: z.string().trim().max(2000).optional(),
+});
+
+export const adminTaskSnoozeSchema = z.object({
+  id: z.string().min(1),
+  snoozeUntil: z.coerce.date(),
+});
+
+export type AdminTaskCreateInput = z.infer<typeof adminTaskCreateSchema>;
+export type AdminTaskUpdateInput = z.infer<typeof adminTaskUpdateSchema>;
 
 export type SignupInput = z.infer<typeof signupSchema>;
 export type ProfileInput = z.infer<typeof profileSchema>;

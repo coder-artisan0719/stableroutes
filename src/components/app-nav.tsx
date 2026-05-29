@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  ClipboardList,
   Gift,
   LayoutDashboard,
   Megaphone,
@@ -34,6 +35,7 @@ const NAV: Record<PanelType, NavItem[]> = {
     { href: "/admin", label: "Overview", icon: LayoutDashboard },
     { href: "/admin/profiles", label: "Profiles", icon: ShieldCheck },
     { href: "/admin/transactions", label: "Transactions", icon: Receipt },
+    { href: "/admin/tasks", label: "Tasks", icon: ClipboardList },
     { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
     { href: "/admin/customers", label: "Customers", icon: Users },
     { href: "/admin/sign-ins", label: "Sign-ins", icon: Activity },

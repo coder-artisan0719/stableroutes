@@ -9,6 +9,7 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  Send,
   ShieldCheck,
   ShieldOff,
   Trash2,
@@ -52,6 +53,7 @@ type Customer = {
   blocked: boolean;
   blockedReason: string | null;
   twoFactor: boolean;
+  telegramId: string | null;
   profiles: number;
   transactions: number;
 };
@@ -79,6 +81,7 @@ export function AdminCustomersClient({
                 <TableRow>
                   <TableHead>Email</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Telegram</TableHead>
                   <TableHead className="text-right">Profiles</TableHead>
                   <TableHead className="text-right">Transactions</TableHead>
                   <TableHead>Joined</TableHead>
@@ -92,6 +95,13 @@ export function AdminCustomersClient({
                     <TableCell className="font-medium">{c.email}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {c.name ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {c.telegramId ? (
+                        <TelegramLink handle={c.telegramId} />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">{c.profiles}</TableCell>
                     <TableCell className="text-right">{c.transactions}</TableCell>
@@ -185,6 +195,33 @@ export function AdminCustomersClient({
   );
 }
 
+/**
+ * Renders a Telegram handle as a clickable t.me/* link when it looks like a
+ * username, and as plain mono text when it's a numeric chat ID.
+ */
+function TelegramLink({ handle }: { handle: string }) {
+  const trimmed = handle.trim().replace(/^@/, "");
+  const isUsername = /^[A-Za-z0-9_]{5,32}$/.test(trimmed);
+  if (isUsername) {
+    return (
+      <a
+        href={`https://t.me/${trimmed}`}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+      >
+        <Send className="h-3 w-3" />@{trimmed}
+      </a>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground">
+      <Send className="h-3 w-3" />
+      {handle}
+    </span>
+  );
+}
+
 function CredentialsDialog({
   customer,
   onDone,
@@ -196,6 +233,7 @@ function CredentialsDialog({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [twoFactorOn, setTwoFactorOn] = useState(customer.twoFactor);
+  const [telegramId, setTelegramId] = useState(customer.telegramId ?? "");
   const [pending, startTransition] = useTransition();
   const [resetPending, startResetTransition] = useTransition();
 
@@ -205,11 +243,10 @@ function CredentialsDialog({
         id: customer.id,
         email: email.trim(),
         password,
+        telegramId: telegramId.trim(),
       });
       if (res.ok) {
-        toast.success(
-          "Credentials updated. The customer has been notified by email.",
-        );
+        toast.success("Customer details updated.");
         onDone();
       } else {
         toast.error(res.error);
@@ -285,6 +322,25 @@ function CredentialsDialog({
           </div>
           <p className="text-xs text-muted-foreground">
             Minimum 8 characters. Leave blank to leave the password unchanged.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="cred-telegram">Telegram</Label>
+          <div className="relative">
+            <Send className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="cred-telegram"
+              value={telegramId}
+              onChange={(e) => setTelegramId(e.target.value)}
+              placeholder="@username or numeric chat ID"
+              autoComplete="off"
+              className="pl-8"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Used by admins to reach the customer about payment confirmations
+            and follow-up tasks. Leave blank to clear it.
           </p>
         </div>
 

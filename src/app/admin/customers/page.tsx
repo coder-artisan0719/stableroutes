@@ -17,6 +17,7 @@ export default async function AdminCustomersPage() {
       blocked: true,
       blockedReason: true,
       twoFactor: true,
+      telegramId: true,
       _count: { select: { profiles: true, transactions: true } },
     },
   });
@@ -39,6 +40,7 @@ export default async function AdminCustomersPage() {
           blocked: c.blocked,
           blockedReason: c.blockedReason,
           twoFactor: c.twoFactor,
+          telegramId: c.telegramId,
           profiles: c._count.profiles,
           transactions: c._count.transactions,
         }))}
