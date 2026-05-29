@@ -32,7 +32,13 @@ export default async function AdminTransactionsPage({
       orderBy: { createdAt: "desc" },
       include: {
         user: { select: { email: true, name: true } },
-        profile: { select: { firstName: true, lastName: true } },
+        profile: {
+          select: {
+            firstName: true,
+            lastName: true,
+            withdrawalAddress: true,
+          },
+        },
       },
       take: 200,
     }),
@@ -74,6 +80,7 @@ export default async function AdminTransactionsPage({
           userEmail: t.user.email,
           userName: t.user.name,
           profileName: `${t.profile.firstName} ${t.profile.lastName}`,
+          withdrawalAddress: t.profile.withdrawalAddress,
         }))}
         approvedProfiles={approvedProfiles.map((p) => ({
           id: p.id,

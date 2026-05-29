@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import {
   Check,
   Clock,
+  Copy,
+  ExternalLink,
   ListChecks,
   Loader2,
   Lock,
@@ -15,6 +17,7 @@ import {
   Plus,
   Trash2,
   Undo2,
+  Wallet,
   X,
   XCircle,
 } from "lucide-react";
@@ -68,6 +71,7 @@ type Row = Transaction & {
   userEmail: string;
   userName: string | null;
   profileName: string;
+  withdrawalAddress: string;
 };
 
 export type ApprovedProfile = {
@@ -425,20 +429,71 @@ export function AdminTransactionsClient({
           </DialogHeader>
           <div className="space-y-3">
             {editing?.target === "COMPLETED" && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Settlement tx hash (Base) &mdash; optional but recommended
-                </label>
-                <Input
-                  className="font-mono text-xs"
-                  value={txHash}
-                  onChange={(e) => setTxHash(e.target.value)}
-                  placeholder="0x..."
-                />
-                <p className="text-xs text-muted-foreground">
-                  Shown to the customer with a link to BaseScan.
-                </p>
-              </div>
+              <>
+                <div className="rounded-lg border bg-muted/40 p-3 text-xs">
+                  <div className="mb-1.5 flex items-center gap-1.5 font-medium text-foreground">
+                    <Wallet className="h-3.5 w-3.5" />
+                    Customer USDC destination (Base)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 break-all rounded bg-background px-2 py-1 font-mono text-[11px]">
+                      {editing.tx.withdrawalAddress}
+                    </code>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        navigator.clipboard
+                          .writeText(editing.tx.withdrawalAddress)
+                          .then(() => toast.success("Address copied"));
+                      }}
+                      title="Copy address"
+                      aria-label="Copy address"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <a
+                      href={`https://basescan.org/address/${editing.tx.withdrawalAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      title="Open address on BaseScan"
+                      aria-label="Open address on BaseScan"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                  <p className="mt-1.5 text-muted-foreground">
+                    Verify the recipient before signing the transfer.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Settlement tx hash (Base) &mdash; optional but recommended
+                  </label>
+                  <Input
+                    className="font-mono text-xs"
+                    value={txHash}
+                    onChange={(e) => setTxHash(e.target.value)}
+                    placeholder="0x..."
+                  />
+                  {/^0x[a-fA-F0-9]{64}$/.test(txHash.trim()) && (
+                    <a
+                      href={`https://basescan.org/tx/${txHash.trim()}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" /> Open this hash on
+                      BaseScan
+                    </a>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Shown to the customer with a link to BaseScan.
+                  </p>
+                </div>
+              </>
             )}
             {editing?.target === "REFUNDED" && (
               <div className="space-y-2">
