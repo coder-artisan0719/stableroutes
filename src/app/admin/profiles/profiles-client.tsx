@@ -528,11 +528,7 @@ function ProfilesTable({
                   {p.bankName ? (
                     <div>
                       <div>{p.bankName}</div>
-                      {p.accountNumber && (
-                        <div className="font-mono text-xs text-muted-foreground">
-                          {p.accountNumber}
-                        </div>
-                      )}
+                      <MaskedAccountLine accountNumber={p.accountNumber} />
                     </div>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
@@ -564,6 +560,27 @@ function ProfilesTable({
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Last-four-digit account identifier rendered as a small sub-line beneath the
+ * bank name in admin tables (e.g. `••1234`). Renders nothing when the profile
+ * doesn't yet have an account assigned.
+ */
+function MaskedAccountLine({ accountNumber }: { accountNumber: string | null }) {
+  if (!accountNumber) return null;
+  // The schema allows digits + dashes; strip dashes so the last four are always
+  // digit characters even when the customer's bank uses a hyphenated format.
+  const digits = accountNumber.replace(/\D/g, "");
+  const last4 = digits.slice(-4) || accountNumber.slice(-4);
+  return (
+    <div
+      className="font-mono text-xs text-muted-foreground"
+      title={`Ends in ${last4}`}
+    >
+      ••{last4}
+    </div>
   );
 }
 
