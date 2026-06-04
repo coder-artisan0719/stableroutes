@@ -33,6 +33,7 @@ export default async function AdminOverview() {
     openTaskCount,
     overdueTaskCount,
     openTasksList,
+    pendingAddressList,
   ] = await Promise.all([
     prisma.transaction.groupBy({
       by: ["status"],
@@ -73,6 +74,12 @@ export default async function AdminOverview() {
         profileName: true,
         category: true,
       },
+    }),
+    prisma.customerProfile.findMany({
+      where: { pendingWithdrawalAddress: { not: null } },
+      orderBy: { pendingWithdrawalRequestedAt: "asc" },
+      take: 5,
+      include: { user: { select: { email: true } } },
     }),
   ]);
 
@@ -246,6 +253,57 @@ export default async function AdminOverview() {
           </CardContent>
         </Card>
       </div>
+
+      {pendingAddressList.length > 0 && (
+        <Card className="border-warning/40">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-warning" />
+              Withdrawal address changes pending approval
+              <span className="ml-1 inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                {pendingAddressList.length}
+              </span>
+            </CardTitle>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/admin/profiles?status=APPROVED">
+                Review <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingAddressList.map((p) => (
+              <div
+                key={p.id}
+                className="rounded-lg border bg-card p-3 text-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {p.firstName} {p.lastName}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {p.user.email}
+                    </p>
+                  </div>
+                  {p.pendingWithdrawalRequestedAt && (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {formatDateTime(p.pendingWithdrawalRequestedAt)}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 grid gap-0.5 text-[11px]">
+                  <span className="break-all font-mono text-muted-foreground">
+                    live: {p.withdrawalAddress}
+                  </span>
+                  <span className="break-all font-mono text-warning">
+                    new: {p.pendingWithdrawalAddress}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

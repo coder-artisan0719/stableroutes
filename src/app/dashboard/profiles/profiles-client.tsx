@@ -76,6 +76,7 @@ import {
   truncateMiddle,
 } from "@/lib/utils";
 import {
+  cancelWithdrawalAddressChange,
   createProfile,
   deleteProfile,
   getProfileTransactions,
@@ -786,6 +787,15 @@ function ProfileViewDialog({
           </section>
         )}
 
+        {profile.pendingWithdrawalAddress && (
+          <PendingAddressBanner
+            profileId={profile.id}
+            current={profile.withdrawalAddress}
+            pending={profile.pendingWithdrawalAddress}
+            requestedAt={profile.pendingWithdrawalRequestedAt}
+          />
+        )}
+
         <section>
           <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Profile
@@ -1048,7 +1058,9 @@ function EditAddressDialog({
       const res = await updateWithdrawalAddress(profile.id, trimmed);
       if (res.ok) {
         toast.success(
-          "Withdrawal address submitted — your profile is now pending admin review.",
+          res.pending
+            ? "Address change submitted — an admin must approve it before it goes live."
+            : "Withdrawal address updated.",
         );
         onDone();
       } else {
@@ -1095,11 +1107,20 @@ function EditAddressDialog({
         <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
           <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            Changing the withdrawal address sends this profile back to admin
-            review. An admin is notified and must approve it before it goes
-            live.
+            {profile.status === "PENDING"
+              ? "Your profile is still under initial review — the new address replaces the one you submitted."
+              : "Your existing address keeps receiving settlements until an admin approves the change. You can cancel the request at any time."}
           </span>
         </div>
+        {profile.pendingWithdrawalAddress && (
+          <p className="text-xs text-muted-foreground">
+            A previous change request is already pending:{" "}
+            <span className="break-all font-mono">
+              {profile.pendingWithdrawalAddress}
+            </span>
+            . Submitting this form replaces it.
+          </p>
+        )}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onDone}>
             Cancel
@@ -1111,5 +1132,80 @@ function EditAddressDialog({
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+/**
+ * Surfaces a pending withdrawal-address change inside the profile detail
+ * dialog: shows both addresses side-by-side and lets the customer cancel the
+ * request. While this banner is present, the live address still receives
+ * settlements — only an admin can promote the pending value.
+ */
+function PendingAddressBanner({
+  profileId,
+  current,
+  pending,
+  requestedAt,
+}: {
+  profileId: string;
+  current: string;
+  pending: string;
+  requestedAt: Date | null;
+}) {
+  const [busy, startTransition] = useTransition();
+
+  const cancel = () => {
+    if (
+      !confirm(
+        "Cancel this address change request? Your live withdrawal address won't change.",
+      )
+    )
+      return;
+    startTransition(async () => {
+      const res = await cancelWithdrawalAddressChange(profileId);
+      if (res.ok) toast.success("Address change request cancelled.");
+      else toast.error(res.error);
+    });
+  };
+
+  return (
+    <section className="rounded-lg border border-warning/40 bg-warning/10 p-4">
+      <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-warning">
+        <Clock className="h-3.5 w-3.5" /> Address change awaiting admin approval
+      </h3>
+      <p className="mt-1.5 text-sm text-foreground">
+        Settlements continue routing to your existing address until an admin
+        approves the new one.
+      </p>
+      <dl className="mt-3 space-y-1 text-xs">
+        <div className="flex items-start gap-2">
+          <dt className="w-20 shrink-0 text-muted-foreground">Live now</dt>
+          <dd className="min-w-0 break-all font-mono">{current}</dd>
+        </div>
+        <div className="flex items-start gap-2">
+          <dt className="w-20 shrink-0 text-muted-foreground">Requested</dt>
+          <dd className="min-w-0 break-all font-mono text-warning">
+            {pending}
+          </dd>
+        </div>
+        {requestedAt && (
+          <div className="flex items-start gap-2">
+            <dt className="w-20 shrink-0 text-muted-foreground">Submitted</dt>
+            <dd>{formatDateTime(requestedAt)}</dd>
+          </div>
+        )}
+      </dl>
+      <div className="mt-3 flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={cancel}
+          disabled={busy}
+        >
+          {busy && <Loader2 className="animate-spin" />} Cancel request
+        </Button>
+      </div>
+    </section>
   );
 }

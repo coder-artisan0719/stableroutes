@@ -6,6 +6,7 @@ import type { Prisma } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import {
+  adminScheduledTransactionUpdateSchema,
   adminTaskCreateSchema,
   adminTaskResolveSchema,
   adminTaskSnoozeSchema,
@@ -29,6 +30,10 @@ import {
   effectiveCommissionPct,
   referralDiscountForUser,
 } from "@/lib/referral";
+import {
+  riskBucket,
+  scoreTransactionRisk,
+} from "@/lib/ai-scoring";
 import { formatUSD } from "@/lib/utils";
 
 async function requireAdminId() {
@@ -105,6 +110,106 @@ export async function setProfileStatus(input: unknown) {
   return { ok: true as const };
 }
 
+/**
+ * Promotes a customer's staged `pendingWithdrawalAddress` into the live
+ * `withdrawalAddress`, clears the pending columns, and emails the customer
+ * that their requested change is now active. No-op (returns an error) if
+ * there is no pending change on the profile.
+ */
+export async function approveWithdrawalAddressChange(profileId: string) {
+  await requireAdminId();
+
+  const existing = await prisma.customerProfile.findUnique({
+    where: { id: profileId },
+    include: { user: { select: { id: true, email: true, name: true } } },
+  });
+  if (!existing) {
+    return { ok: false as const, error: "Profile not found" };
+  }
+  if (!existing.pendingWithdrawalAddress) {
+    return {
+      ok: false as const,
+      error: "There is no pending address change on this profile.",
+    };
+  }
+
+  const updated = await prisma.customerProfile.update({
+    where: { id: profileId },
+    data: {
+      withdrawalAddress: existing.pendingWithdrawalAddress,
+      pendingWithdrawalAddress: null,
+      pendingWithdrawalRequestedAt: null,
+      pendingAddressRiskScore: null,
+      pendingAddressRiskReasons: [],
+    },
+  });
+
+  void createCustomerNotification({
+    userId: existing.user.id,
+    title: "Withdrawal address updated",
+    message: `Your USDC withdrawal address for ${existing.firstName} ${existing.lastName} has been approved and is now active.`,
+    url: "/dashboard/profiles",
+  });
+
+  revalidatePath("/admin/profiles");
+  revalidatePath("/admin");
+  revalidatePath("/dashboard/profiles");
+  revalidatePath("/dashboard");
+  return { ok: true as const, profileId: updated.id };
+}
+
+/**
+ * Rejects a customer's pending withdrawal-address change. The live address
+ * is preserved and the pending columns are cleared so the customer can try
+ * again. An optional admin reason is surfaced to the customer.
+ */
+export async function rejectWithdrawalAddressChange(
+  profileId: string,
+  reason?: string,
+) {
+  await requireAdminId();
+
+  const existing = await prisma.customerProfile.findUnique({
+    where: { id: profileId },
+    include: { user: { select: { id: true, email: true, name: true } } },
+  });
+  if (!existing) {
+    return { ok: false as const, error: "Profile not found" };
+  }
+  if (!existing.pendingWithdrawalAddress) {
+    return {
+      ok: false as const,
+      error: "There is no pending address change on this profile.",
+    };
+  }
+
+  await prisma.customerProfile.update({
+    where: { id: profileId },
+    data: {
+      pendingWithdrawalAddress: null,
+      pendingWithdrawalRequestedAt: null,
+      pendingAddressRiskScore: null,
+      pendingAddressRiskReasons: [],
+    },
+  });
+
+  const trimmedReason = reason?.trim();
+  void createCustomerNotification({
+    userId: existing.user.id,
+    title: "Withdrawal address change rejected",
+    message: trimmedReason
+      ? `Your requested address change for ${existing.firstName} ${existing.lastName} wasn't approved: ${trimmedReason}`
+      : `Your requested address change for ${existing.firstName} ${existing.lastName} wasn't approved. Existing settlements will continue to the previous address.`,
+    url: "/dashboard/profiles",
+  });
+
+  revalidatePath("/admin/profiles");
+  revalidatePath("/admin");
+  revalidatePath("/dashboard/profiles");
+  revalidatePath("/dashboard");
+  return { ok: true as const };
+}
+
 export async function adminDeleteProfile(id: string) {
   await requireAdminId();
   const profile = await prisma.customerProfile.findUnique({
@@ -175,6 +280,110 @@ export async function adminCreateTransaction(input: unknown) {
       scheduledFor: isScheduled ? parsed.data.scheduledFor : null,
     },
   });
+
+  // AI risk-score in the background. The transaction is already saved, so a
+  // slow or failed scoring call never blocks the admin action. Once the
+  // score lands we write it back and auto-create a HIGH-priority follow-up
+  // task above the elevated bucket so the admin doesn't have to spot it
+  // manually on the transactions page.
+  void (async () => {
+    try {
+      const sinceMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const [
+        completedCount,
+        completedSum,
+        refundedCount,
+        pendingCount,
+        customer,
+      ] = await Promise.all([
+        prisma.transaction.count({
+          where: { userId: profile.userId, status: "COMPLETED" },
+        }),
+        prisma.transaction.aggregate({
+          where: { userId: profile.userId, status: "COMPLETED" },
+          _sum: { amountCents: true },
+        }),
+        prisma.transaction.count({
+          where: { userId: profile.userId, status: "REFUNDED" },
+        }),
+        prisma.transaction.count({
+          where: { userId: profile.userId, status: "PENDING" },
+        }),
+        prisma.user.findUnique({
+          where: { id: profile.userId },
+          select: { createdAt: true, blocked: true },
+        }),
+      ]);
+      const accountAgeDays = customer
+        ? Math.max(
+            0,
+            Math.floor(
+              (Date.now() - customer.createdAt.getTime()) /
+                (24 * 60 * 60 * 1000),
+            ),
+          )
+        : 0;
+      void sinceMs; // referenced in case future signals want a 30-day window
+
+      const verdict = await scoreTransactionRisk({
+        amountCents: tx.amountCents,
+        type: tx.type,
+        senderName: tx.senderName,
+        description: tx.description,
+        customerEmail: profile.user.email,
+        profileName: `${profile.firstName} ${profile.lastName}`,
+        customerStats: {
+          completedCount,
+          totalCompletedCents: completedSum._sum.amountCents ?? 0,
+          refundedCount,
+          pendingCount,
+          accountAgeDays,
+          customerBlocked: customer?.blocked ?? false,
+        },
+      });
+      if (!verdict) return;
+
+      await prisma.transaction.update({
+        where: { id: tx.id },
+        data: {
+          riskScore: verdict.score,
+          riskReasons: verdict.reasons,
+          riskAnalyzedAt: new Date(),
+        },
+      });
+
+      // Auto-task above the "elevated" threshold so the admin queue picks it
+      // up immediately — gives the admin a place to act before the customer
+      // ever notices the transfer was flagged.
+      const bucket = riskBucket(verdict.score);
+      if (bucket.severity === "high" || bucket.severity === "medium") {
+        await prisma.adminTask.create({
+          data: {
+            title: `Review flagged transfer (${bucket.label}, ${verdict.score}/100)`,
+            category: "COMPLIANCE_REVIEW",
+            priority: bucket.severity === "high" ? "URGENT" : "HIGH",
+            status: "OPEN",
+            customerId: profile.userId,
+            profileId: profile.id,
+            transactionId: tx.id,
+            customerEmail: profile.user.email,
+            profileName: `${profile.firstName} ${profile.lastName}`,
+            amountCents: tx.amountCents,
+            paidAt: tx.createdAt,
+            dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            reason: verdict.reasons.join(" · "),
+            autoGenerated: true,
+          },
+        });
+      }
+
+      revalidatePath("/admin/transactions");
+      revalidatePath("/admin/tasks");
+      revalidatePath("/admin");
+    } catch (err) {
+      console.error("[risk] background scoring failed:", err);
+    }
+  })();
 
   void sendTransactionStatusEmail({
     user: {
@@ -431,6 +640,64 @@ export async function adminDeleteCustomer(id: string) {
   revalidatePath("/admin");
   revalidatePath("/admin/profiles");
   revalidatePath("/admin/transactions");
+  return { ok: true as const };
+}
+
+/**
+ * Edits a SCHEDULED transaction in place. The admin can change the sender
+ * name (must remain non-empty) and the scheduled-for time (must remain in
+ * the future). Once a transaction has flipped to PENDING/COMPLETED/etc.
+ * it's no longer editable here — use `setTransactionStatus` for that.
+ */
+export async function adminUpdateScheduledTransaction(input: unknown) {
+  await requireAdminId();
+  const parsed = adminScheduledTransactionUpdateSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Invalid input",
+    };
+  }
+
+  const existing = await prisma.transaction.findUnique({
+    where: { id: parsed.data.id },
+    select: { status: true, scheduledFor: true },
+  });
+  if (!existing) {
+    return { ok: false as const, error: "Transaction not found" };
+  }
+  if (existing.status !== "SCHEDULED") {
+    return {
+      ok: false as const,
+      error: "Only scheduled transactions can be edited here.",
+    };
+  }
+
+  // If a new scheduledFor is provided, require it to be in the future so we
+  // don't silently push the row out of SCHEDULED state.
+  let nextScheduledFor = existing.scheduledFor;
+  if (parsed.data.scheduledFor instanceof Date) {
+    if (parsed.data.scheduledFor.getTime() <= Date.now()) {
+      return {
+        ok: false as const,
+        error: "Scheduled date must be in the future.",
+      };
+    }
+    nextScheduledFor = parsed.data.scheduledFor;
+  }
+
+  await prisma.transaction.update({
+    where: { id: parsed.data.id },
+    data: {
+      senderName: parsed.data.senderName,
+      scheduledFor: nextScheduledFor,
+    },
+  });
+
+  revalidatePath("/admin/transactions");
+  revalidatePath("/admin");
+  revalidatePath("/dashboard/transactions");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }
 
@@ -717,8 +984,14 @@ export async function adminAutoDetectTasks() {
   const adminId = await requireAdminId();
   const now = Date.now();
 
-  const [blocked, stalePending, oldPendingTx, lateScheduled, oldRefunds] =
-    await Promise.all([
+  const [
+    blocked,
+    stalePending,
+    oldPendingTx,
+    lateScheduled,
+    oldRefunds,
+    pendingAddressChanges,
+  ] = await Promise.all([
       prisma.user.findMany({
         where: { blocked: true, role: "CUSTOMER" },
         select: { id: true, email: true, blockedReason: true, blockedAt: true },
@@ -781,6 +1054,17 @@ export async function adminAutoDetectTasks() {
           refundedAt: true,
           user: { select: { email: true } },
           profile: { select: { firstName: true, lastName: true } },
+        },
+      }),
+      prisma.customerProfile.findMany({
+        where: { pendingWithdrawalAddress: { not: null } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          userId: true,
+          pendingWithdrawalRequestedAt: true,
+          user: { select: { email: true } },
         },
       }),
     ]);
@@ -904,6 +1188,26 @@ export async function adminAutoDetectTasks() {
       amountCents: t.amountCents,
       reason: "Refund initiated over 7 days ago; confirm settlement completed.",
       dueAt: new Date(now + 3 * 24 * 60 * 60 * 1000),
+      autoGenerated: true,
+      createdById: adminId,
+    });
+  }
+
+  for (const p of pendingAddressChanges) {
+    if (has("COMPLIANCE_REVIEW", p.userId, p.id, null)) continue;
+    const requested = p.pendingWithdrawalRequestedAt?.getTime() ?? now;
+    toCreate.push({
+      title: `Withdrawal address change: ${p.firstName} ${p.lastName}`,
+      category: "COMPLIANCE_REVIEW",
+      priority: "HIGH",
+      status: "OPEN",
+      customerId: p.userId,
+      profileId: p.id,
+      customerEmail: p.user.email,
+      profileName: `${p.firstName} ${p.lastName}`,
+      reason:
+        "Customer submitted a new USDC withdrawal address. Verify the change before approving — settlements still route to the old address.",
+      dueAt: new Date(requested + 24 * 60 * 60 * 1000),
       autoGenerated: true,
       createdById: adminId,
     });

@@ -3,6 +3,7 @@ import { getInAppNotifications } from "@/lib/notifications";
 import { AppShell } from "@/components/app-shell";
 import { IdleTimeout } from "@/components/idle-timeout";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { DashboardChatbot } from "@/components/dashboard-chatbot";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function DashboardLayout({
       >
         {children}
       </AppShell>
+      <DashboardChatbot />
     </>
   );
 }

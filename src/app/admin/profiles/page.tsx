@@ -11,7 +11,13 @@ const ALLOWED_VIEW = ["grid", "table"] as const;
 export default async function AdminProfilesPage({
   searchParams,
 }: {
-  searchParams: { status?: string; page?: string; pageSize?: string; view?: string };
+  searchParams: {
+    status?: string;
+    page?: string;
+    pageSize?: string;
+    view?: string;
+    q?: string;
+  };
 }) {
   await requireAdmin();
 
@@ -23,16 +29,37 @@ export default async function AdminProfilesPage({
     : "table";
   const pageSize = parsePageSize(searchParams.pageSize);
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
+  const q = (searchParams.q ?? "").trim();
+
+  // Status is the primary filter; q is an additional contains-match across
+  // name / sender / bank / withdrawal address / customer email.
+  const where = q
+    ? {
+        status,
+        OR: [
+          { firstName: { contains: q, mode: "insensitive" as const } },
+          { lastName: { contains: q, mode: "insensitive" as const } },
+          { senderName: { contains: q, mode: "insensitive" as const } },
+          { bankName: { contains: q, mode: "insensitive" as const } },
+          { withdrawalAddress: { contains: q, mode: "insensitive" as const } },
+          {
+            user: {
+              email: { contains: q, mode: "insensitive" as const },
+            },
+          },
+        ],
+      }
+    : { status };
 
   const [profiles, total, counts] = await Promise.all([
     prisma.customerProfile.findMany({
-      where: { status },
+      where,
       orderBy: status === "PENDING" ? { createdAt: "asc" } : { createdAt: "desc" },
       take: pageSize,
       skip: (page - 1) * pageSize,
       include: { user: { select: { email: true, name: true } } },
     }),
-    prisma.customerProfile.count({ where: { status } }),
+    prisma.customerProfile.count({ where }),
     prisma.customerProfile.groupBy({ by: ["status"], _count: true }),
   ]);
 
@@ -66,6 +93,7 @@ export default async function AdminProfilesPage({
         totalPages={totalPages}
         pageSize={pageSize}
         total={total}
+        query={q}
       />
     </div>
   );

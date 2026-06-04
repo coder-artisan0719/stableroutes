@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,6 +14,7 @@ import {
   Loader2,
   Lock,
   MoreHorizontal,
+  Pencil,
   Plus,
   Trash2,
   Undo2,
@@ -64,6 +65,7 @@ import { formatDateTime, formatUSD, truncateMiddle } from "@/lib/utils";
 import {
   adminCreateTransaction,
   adminDeleteTransactions,
+  adminUpdateScheduledTransaction,
   setTransactionStatus,
 } from "../actions";
 
@@ -109,6 +111,7 @@ export function AdminTransactionsClient({
     tx: Row;
     target: TransactionStatus;
   } | null>(null);
+  const [editingDetails, setEditingDetails] = useState<Row | null>(null);
   const [creating, setCreating] = useState(false);
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
@@ -290,6 +293,7 @@ export function AdminTransactionsClient({
                   <TableHead>Reference</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Risk</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
@@ -347,6 +351,12 @@ export function AdminTransactionsClient({
                       )}
                     </TableCell>
                     <TableCell>
+                      <RiskBadge
+                        score={t.riskScore}
+                        reasons={t.riskReasons}
+                      />
+                    </TableCell>
+                    <TableCell>
                       <TransactionStatusBadge status={t.status} />
                     </TableCell>
                     <TableCell>
@@ -366,6 +376,21 @@ export function AdminTransactionsClient({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {t.status === "SCHEDULED" && (
+                              <>
+                                <DropdownMenuLabel>
+                                  Scheduled transfer
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setEditingDetails(t)}
+                                >
+                                  <Pencil className="h-4 w-4" /> Edit sender
+                                  / time
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
                             <DropdownMenuLabel>Set status</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             {(
@@ -539,6 +564,18 @@ export function AdminTransactionsClient({
       </Dialog>
 
       <Dialog
+        open={editingDetails !== null}
+        onOpenChange={(v) => !v && setEditingDetails(null)}
+      >
+        {editingDetails && (
+          <EditScheduledDialog
+            tx={editingDetails}
+            onDone={() => setEditingDetails(null)}
+          />
+        )}
+      </Dialog>
+
+      <Dialog
         open={confirmDelete}
         onOpenChange={(v) => !v && setConfirmDelete(false)}
       >
@@ -584,6 +621,170 @@ type NewPaymentInput = {
   scheduledFor?: string;
 };
 
+/**
+ * Compact AI risk indicator shown on each row. Hover for the bullet reasons
+ * the model gave. Renders a quiet dash when no score has been generated yet
+ * (background scoring still running, or OpenAI not configured).
+ */
+function RiskBadge({
+  score,
+  reasons,
+}: {
+  score: number | null;
+  reasons: string[];
+}) {
+  if (score == null) {
+    return (
+      <span
+        className="text-xs text-muted-foreground"
+        title="No AI score yet"
+      >
+        —
+      </span>
+    );
+  }
+  const tone =
+    score >= 75
+      ? "bg-destructive/15 text-destructive ring-destructive/30"
+      : score >= 45
+        ? "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900"
+        : score >= 20
+          ? "bg-blue-100 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900"
+          : "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900";
+  const tooltip = reasons.length > 0 ? reasons.join("\n• ") : "AI risk score";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${tone}`}
+      title={reasons.length > 0 ? `• ${tooltip}` : tooltip}
+    >
+      {score}
+    </span>
+  );
+}
+
+/**
+ * Inline editor for a scheduled transaction. Only sender name and scheduled
+ * time are editable — amount, type, profile and commission are snapshotted
+ * at creation and never change. Sender name is required; the Save button
+ * stays disabled while it's empty so the customer-facing record can never
+ * end up without a sender.
+ */
+function EditScheduledDialog({
+  tx,
+  onDone,
+}: {
+  tx: Row;
+  onDone: () => void;
+}) {
+  const [senderName, setSenderName] = useState(tx.senderName);
+  const [scheduledFor, setScheduledFor] = useState(() =>
+    tx.scheduledFor
+      ? new Date(tx.scheduledFor).toISOString().slice(0, 16)
+      : "",
+  );
+  const [pending, startTransition] = useTransition();
+
+  const trimmed = senderName.trim();
+  const isEmpty = trimmed.length === 0;
+  const dateChanged =
+    scheduledFor !==
+    (tx.scheduledFor
+      ? new Date(tx.scheduledFor).toISOString().slice(0, 16)
+      : "");
+  const nameChanged = trimmed !== tx.senderName;
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isEmpty || pending) return;
+    if (!nameChanged && !dateChanged) {
+      toast.error("Nothing to update");
+      return;
+    }
+
+    let parsedDate: Date | undefined;
+    if (scheduledFor) {
+      const d = new Date(scheduledFor);
+      if (Number.isNaN(d.getTime())) {
+        toast.error("Invalid scheduled date");
+        return;
+      }
+      if (d.getTime() <= Date.now()) {
+        toast.error("Scheduled date must be in the future");
+        return;
+      }
+      parsedDate = d;
+    }
+
+    startTransition(async () => {
+      const res = await adminUpdateScheduledTransaction({
+        id: tx.id,
+        senderName: trimmed,
+        scheduledFor: parsedDate,
+      });
+      if (res.ok) {
+        toast.success("Scheduled transfer updated.");
+        onDone();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Edit scheduled transfer</DialogTitle>
+        <DialogDescription>
+          {formatUSD(tx.amountCents)} · {tx.profileName} ·{" "}
+          {tx.userEmail}
+        </DialogDescription>
+      </DialogHeader>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-sender">Sender name</Label>
+          <Input
+            id="edit-sender"
+            value={senderName}
+            onChange={(e) => setSenderName(e.target.value)}
+            placeholder="Name the customer will see"
+            autoComplete="off"
+            required
+          />
+          {isEmpty && (
+            <p className="text-xs text-destructive">
+              Sender name is required and cannot be empty.
+            </p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-scheduled">Scheduled for</Label>
+          <Input
+            id="edit-scheduled"
+            type="datetime-local"
+            value={scheduledFor}
+            onChange={(e) => setScheduledFor(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Must be in the future. Leave unchanged to keep the existing time.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onDone}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={pending || isEmpty || (!nameChanged && !dateChanged)}
+          >
+            {pending && <Loader2 className="animate-spin" />}
+            Save changes
+          </Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  );
+}
+
 function NewPaymentDialog({
   profiles,
   onDone,
@@ -604,17 +805,35 @@ function NewPaymentDialog({
       profileId: profiles[0]?.id ?? "",
       amount: "",
       type: "ACH",
-      senderName: "",
+      // Seeded from the initial profile's sender — the admin can still edit.
+      senderName: profiles[0]?.senderName ?? "",
     },
   });
   const profileId = watch("profileId");
   const type = watch("type");
   const amountWatch = watch("amount");
+  const senderWatch = watch("senderName");
 
   const selected = useMemo(
     () => profiles.find((p) => p.id === profileId) ?? null,
     [profileId, profiles],
   );
+
+  // When the admin picks a different profile, replace the sender input with
+  // that profile's sender — unless the admin already typed a non-matching
+  // custom value, in which case we preserve their edit.
+  const lastSyncedProfileId = useRef(profileId);
+  useEffect(() => {
+    if (!selected) return;
+    if (lastSyncedProfileId.current === profileId) return;
+    const previous = profiles.find((p) => p.id === lastSyncedProfileId.current);
+    const adminCustomised =
+      senderWatch && previous && senderWatch !== previous.senderName;
+    if (!adminCustomised) {
+      setValue("senderName", selected.senderName, { shouldValidate: true });
+    }
+    lastSyncedProfileId.current = profileId;
+  }, [profileId, selected, senderWatch, profiles, setValue]);
 
   // Limit ACH/Wire options to what the profile's bank account supports.
   const allowedTypes = useMemo<("ACH" | "WIRE")[]>(() => {
@@ -665,12 +884,20 @@ function NewPaymentDialog({
 
     const willBeScheduled = !!scheduledFor;
 
+    // Sender defaults from the customer's profile but the admin can edit it
+    // before submitting (e.g. when one profile receives from multiple senders).
+    const senderName = data.senderName.trim();
+    if (senderName.length === 0) {
+      toast.error("Sender name is required");
+      return;
+    }
+
     startTransition(async () => {
       const res = await adminCreateTransaction({
         profileId: data.profileId,
         amountCents,
         type: data.type,
-        senderName: data.senderName.trim(),
+        senderName,
         description: data.description?.trim() || undefined,
         adminNote: data.adminNote?.trim() || undefined,
         scheduledFor,
@@ -793,11 +1020,21 @@ function NewPaymentDialog({
           <Label htmlFor="senderName">Sender name</Label>
           <Input
             id="senderName"
-            placeholder="The name shown to the customer (who's sending the funds)"
-            {...register("senderName", { required: true, minLength: 1 })}
+            placeholder="Pre-filled from the customer's profile"
+            {...register("senderName", {
+              required: "Sender name is required",
+              validate: (v) =>
+                v.trim().length > 0 || "Sender name cannot be empty",
+            })}
           />
+          <p className="text-xs text-muted-foreground">
+            Default comes from the customer&apos;s profile — edit if this
+            specific payment needs a different sender name.
+          </p>
           {errors.senderName && (
-            <p className="text-xs text-destructive">Sender name is required</p>
+            <p className="text-xs text-destructive">
+              {errors.senderName.message ?? "Sender name is required"}
+            </p>
           )}
         </div>
 

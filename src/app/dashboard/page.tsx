@@ -3,6 +3,7 @@ import { ArrowUpRight, Banknote, Clock, ShieldCheck, Wallet } from "lucide-react
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AccountInsights } from "@/components/account-insights";
 import { prisma } from "@/lib/prisma";
 import { requireCustomer } from "@/lib/auth-guards";
 import { formatUSD, formatDate, truncateMiddle } from "@/lib/utils";
@@ -94,6 +95,8 @@ export default async function DashboardOverview() {
           </Link>
         </Button>
       </div>
+
+      <AccountInsights />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((s) => (

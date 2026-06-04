@@ -148,6 +148,19 @@ const evmTxHash = z
   .string()
   .regex(/^0x[a-fA-F0-9]{64}$/, "Tx hash must be 0x followed by 64 hex chars");
 
+// Admin edits a SCHEDULED transaction in place — currently sender name
+// (required, non-empty) and the scheduled-for time (optional, must be future).
+// Completed / refunded / cancelled transactions are immutable.
+export const adminScheduledTransactionUpdateSchema = z.object({
+  id: z.string().min(1),
+  senderName: z
+    .string()
+    .trim()
+    .min(1, "Sender name cannot be empty")
+    .max(120),
+  scheduledFor: z.coerce.date().optional(),
+});
+
 export const transactionStatusSchema = z.object({
   id: z.string().min(1),
   status: z.enum([

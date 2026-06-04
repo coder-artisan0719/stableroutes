@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowUpRight,
@@ -9,7 +9,9 @@ import {
   ExternalLink,
   Eye,
   Landmark,
+  Loader2,
   Receipt,
+  Sparkles,
   X,
 } from "lucide-react";
 import type { CustomerProfile, Transaction } from "@prisma/client";
@@ -129,6 +131,7 @@ export function CustomerTransactionsClient({
 }) {
   const router = useRouter();
   const [viewing, setViewing] = useState<Row | null>(null);
+  const [explaining, setExplaining] = useState<Row | null>(null);
 
   const startIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endIdx = Math.min(page * pageSize, total);
@@ -203,15 +206,26 @@ export function CustomerTransactionsClient({
                       <TransactionStatusBadge status={t.status} />
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setViewing(t)}
-                        aria-label="View details"
-                        title="View details"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="inline-flex items-center gap-0.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setExplaining(t)}
+                          aria-label="Explain this transaction"
+                          title="Explain this transaction"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setViewing(t)}
+                          aria-label="View details"
+                          title="View details"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -234,7 +248,103 @@ export function CustomerTransactionsClient({
       <Dialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)}>
         {viewing && <TransactionViewDialog tx={viewing} onClose={() => setViewing(null)} />}
       </Dialog>
+
+      <Dialog
+        open={explaining !== null}
+        onOpenChange={(v) => !v && setExplaining(null)}
+      >
+        {explaining && (
+          <ExplainTransactionDialog
+            tx={explaining}
+            onClose={() => setExplaining(null)}
+          />
+        )}
+      </Dialog>
     </>
+  );
+}
+
+/**
+ * AI-written plain-English explanation of a transaction's current state.
+ * Fetches on mount; renders a templated fallback inline if AI is paused.
+ */
+function ExplainTransactionDialog({
+  tx,
+  onClose,
+}: {
+  tx: Row;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const [aiUsed, setAiUsed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/explain-transaction", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: tx.id }),
+        });
+        const json = (await res.json()) as {
+          explanation?: string;
+          aiUsed?: boolean;
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) throw new Error(json.error ?? "Couldn't explain");
+        setText(json.explanation ?? null);
+        setAiUsed(Boolean(json.aiUsed));
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Something went wrong",
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tx.id]);
+
+  return (
+    <DialogContent className="max-w-lg">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          About this transaction
+          {aiUsed && (
+            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+              AI
+            </span>
+          )}
+        </DialogTitle>
+        <DialogDescription>
+          {formatUSD(tx.amountCents)} from {tx.senderName} ·{" "}
+          {formatDateTime(tx.createdAt)}
+        </DialogDescription>
+      </DialogHeader>
+      {loading ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Reading your transaction…
+        </p>
+      ) : error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : (
+        <p className="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>
+      )}
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 

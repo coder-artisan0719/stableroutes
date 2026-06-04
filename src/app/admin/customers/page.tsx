@@ -1,13 +1,31 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
 import { AdminCustomersClient } from "./customers-client";
 
 export const metadata = { title: "Customers" };
 
-export default async function AdminCustomersPage() {
+export default async function AdminCustomersPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
   await requireAdmin();
+  const q = (searchParams.q ?? "").trim();
+  const where: Prisma.UserWhereInput = {
+    role: "CUSTOMER",
+    ...(q
+      ? {
+          OR: [
+            { email: { contains: q, mode: "insensitive" } },
+            { name: { contains: q, mode: "insensitive" } },
+            { telegramId: { contains: q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
   const customers = await prisma.user.findMany({
-    where: { role: "CUSTOMER" },
+    where,
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -44,6 +62,7 @@ export default async function AdminCustomersPage() {
           profiles: c._count.profiles,
           transactions: c._count.transactions,
         }))}
+        query={q}
       />
     </div>
   );

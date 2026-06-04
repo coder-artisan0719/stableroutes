@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Megaphone,
   Receipt,
+  Search,
   Settings,
   ShieldCheck,
   UserCircle2,
@@ -33,6 +34,7 @@ const NAV: Record<PanelType, NavItem[]> = {
   ],
   admin: [
     { href: "/admin", label: "Overview", icon: LayoutDashboard },
+    { href: "/admin/search", label: "Smart search", icon: Search },
     { href: "/admin/profiles", label: "Profiles", icon: ShieldCheck },
     { href: "/admin/transactions", label: "Transactions", icon: Receipt },
     { href: "/admin/tasks", label: "Tasks", icon: ClipboardList },

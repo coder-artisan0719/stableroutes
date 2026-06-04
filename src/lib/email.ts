@@ -209,7 +209,7 @@ export async function sendAdminWithdrawalChangeEmail(args: {
     await send({
       userId: admin.id,
       to: admin.email,
-      subject: "Withdrawal address change needs review",
+      subject: "Withdrawal address change — approval needed",
       html,
     });
   }

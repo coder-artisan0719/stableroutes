@@ -442,21 +442,27 @@ export function adminWithdrawalChangeEmail({
   previousAddress: string;
   newAddress: string;
 }) {
-  const short = (a: string) => `${a.slice(0, 12)}…${a.slice(-8)}`;
   const body = `
-    <p>A customer changed the USDC withdrawal address on an existing profile.
-    The profile has been moved back to <strong>Pending</strong> and needs your
-    review before it is active again.</p>
+    <p>A customer has <strong>requested</strong> a change to the USDC
+    withdrawal address on an existing profile. The change has <strong>not</strong>
+    been applied — settlements will continue routing to the existing address
+    until you approve the new one in the admin panel.</p>
     <table style="width:100%;border-collapse:collapse;margin-top:16px;border-top:1px solid #e2e8f0;">
       ${row("Customer", `${customerName ?? "—"} (${customerEmail})`)}
       ${row("Profile", profileName)}
-      ${row("Previous address", short(previousAddress))}
-      ${row("New address", short(newAddress))}
-    </table>`;
+      ${row("Current address (live)", `<code style="font-family:monospace;font-size:11px;word-break:break-all;">${previousAddress}</code>`)}
+      ${row("Requested new address", `<code style="font-family:monospace;font-size:11px;word-break:break-all;color:#b45309;">${newAddress}</code>`)}
+    </table>
+    <p style="margin-top:16px;font-size:13px;color:#475569;">
+      Open the profile in the admin panel to approve or reject the change.
+      Please verify the new address is correct (e.g. confirm by Telegram or
+      email with the customer) before approving — once approved, future
+      settlements route to the new address.
+    </p>`;
   return shell(
-    "Withdrawal address change — review needed",
+    "Withdrawal address change — approval needed",
     body,
-    { label: "Review in admin panel", href: `${APP_URL}/admin/profiles` },
+    { label: "Review & approve", href: `${APP_URL}/admin/profiles?status=APPROVED` },
     "gold",
   );
 }

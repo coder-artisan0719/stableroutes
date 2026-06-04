@@ -17,6 +17,7 @@ import {
   Loader2,
   Mail,
   Pencil,
+  Search,
   ShieldAlert,
   Trash2,
   User as UserIcon,
@@ -64,7 +65,12 @@ import {
 } from "@/components/currency-flag";
 import { cn, formatDateTime, truncateMiddle } from "@/lib/utils";
 import { bankDetailsSchema, type BankDetailsInput } from "@/lib/validators";
-import { adminDeleteProfile, setProfileStatus } from "../actions";
+import {
+  adminDeleteProfile,
+  approveWithdrawalAddressChange,
+  rejectWithdrawalAddressChange,
+  setProfileStatus,
+} from "../actions";
 
 type Row = CustomerProfile & { userEmail: string; userName: string | null };
 
@@ -83,6 +89,7 @@ export function AdminProfilesClient({
   totalPages,
   pageSize,
   total,
+  query,
 }: {
   profiles: Row[];
   active: "PENDING" | "APPROVED" | "REJECTED";
@@ -94,6 +101,7 @@ export function AdminProfilesClient({
   totalPages: number;
   pageSize: PageSize;
   total: number;
+  query: string;
 }) {
   const router = useRouter();
   const [approving, setApproving] = useState<Row | null>(null);
@@ -101,6 +109,7 @@ export function AdminProfilesClient({
   const [rejecting, setRejecting] = useState<Row | null>(null);
   const [deleting, setDeleting] = useState<Row | null>(null);
   const [viewing, setViewing] = useState<Row | null>(null);
+  const [searchInput, setSearchInput] = useState(query);
 
   const startIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endIdx = Math.min(page * pageSize, total);
@@ -110,6 +119,7 @@ export function AdminProfilesClient({
     page?: number;
     pageSize?: PageSize;
     view?: ViewParam;
+    q?: string;
   }) {
     const params = new URLSearchParams();
     const s = opts.status ?? active;
@@ -120,12 +130,54 @@ export function AdminProfilesClient({
     if (ps !== 10) params.set("pageSize", String(ps));
     const v = opts.view ?? view;
     if (v !== "table") params.set("view", v);
+    const qParam = opts.q ?? query;
+    if (qParam.trim().length > 0) params.set("q", qParam.trim());
     const qs = params.toString();
     return qs ? `/admin/profiles?${qs}` : "/admin/profiles";
   }
 
+  const submitSearch = (next: string) => {
+    router.push(hrefFor({ page: 1, q: next }));
+  };
+
   return (
     <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitSearch(searchInput);
+        }}
+        className="relative"
+      >
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search profiles — name, sender, bank, email, address…"
+          className="pl-9 pr-20"
+        />
+        {searchInput && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchInput("");
+              submitSearch("");
+            }}
+            className="absolute right-16 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+        <Button
+          type="submit"
+          size="sm"
+          variant="secondary"
+          className="absolute right-1 top-1/2 -translate-y-1/2 h-7"
+        >
+          Search
+        </Button>
+      </form>
+
       <div className="flex gap-1 rounded-lg border bg-card p-1 text-sm">
         <Link
           href={hrefFor({ status: "PENDING", page: 1 })}
@@ -523,6 +575,12 @@ function ProfilesTable({
                   <span className="font-mono text-xs text-muted-foreground">
                     {truncateMiddle(p.withdrawalAddress, 8, 6)}
                   </span>
+                  {p.pendingWithdrawalAddress && (
+                    <div className="mt-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-warning">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" />
+                      change pending
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="text-sm">
                   {p.bankName ? (
@@ -581,6 +639,199 @@ function MaskedAccountLine({ accountNumber }: { accountNumber: string | null }) 
     >
       ••{last4}
     </div>
+  );
+}
+
+/**
+ * Top-of-dialog banner shown to the admin when a customer has requested a
+ * withdrawal-address change. Approving swaps the addresses; rejecting keeps
+ * the current one and clears the request. A small reason input is offered
+ * so the customer gets context if the change is denied.
+ */
+function AdminPendingAddressBanner({
+  profileId,
+  current,
+  pending,
+  requestedAt,
+  riskScore,
+  riskReasons,
+  onClose,
+}: {
+  profileId: string;
+  current: string;
+  pending: string;
+  requestedAt: Date | null;
+  riskScore: number | null;
+  riskReasons: string[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [busy, startTransition] = useTransition();
+  const [showReject, setShowReject] = useState(false);
+  const [reason, setReason] = useState("");
+
+  const approve = () => {
+    startTransition(async () => {
+      const res = await approveWithdrawalAddressChange(profileId);
+      if (res.ok) {
+        toast.success("Address change approved.");
+        // Close the profile dialog so the admin returns to the list — the
+        // pending banner has nothing more to show, and leaving it open is
+        // a dead surface that the admin would just have to close manually.
+        onClose();
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  const reject = () => {
+    startTransition(async () => {
+      const res = await rejectWithdrawalAddressChange(
+        profileId,
+        reason.trim() || undefined,
+      );
+      if (res.ok) {
+        toast.success("Address change rejected.");
+        setShowReject(false);
+        setReason("");
+        onClose();
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+    });
+  };
+
+  return (
+    <section className="rounded-lg border-2 border-warning/50 bg-warning/10 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-warning">
+            <ShieldAlert className="h-4 w-4" /> Withdrawal address change
+            requested
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The live address keeps receiving settlements until you approve.
+          </p>
+        </div>
+        <Badge variant="warning">Action needed</Badge>
+      </div>
+      <dl className="mt-3 space-y-1.5 text-xs">
+        <div className="flex items-start gap-2">
+          <dt className="w-24 shrink-0 text-muted-foreground">Live now</dt>
+          <dd className="min-w-0 break-all font-mono">{current}</dd>
+        </div>
+        <div className="flex items-start gap-2">
+          <dt className="w-24 shrink-0 text-muted-foreground">Requested</dt>
+          <dd className="min-w-0 break-all font-mono text-warning">
+            {pending}
+          </dd>
+        </div>
+        {requestedAt && (
+          <div className="flex items-start gap-2">
+            <dt className="w-24 shrink-0 text-muted-foreground">Submitted</dt>
+            <dd>{formatDateTime(requestedAt)}</dd>
+          </div>
+        )}
+      </dl>
+
+      {(riskScore != null || riskReasons.length > 0) && (
+        <div className="mt-3 rounded-md border bg-background/60 p-2.5">
+          <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-muted-foreground">
+            <span>AI anomaly score</span>
+            {riskScore != null && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${
+                  riskScore >= 75
+                    ? "bg-destructive/15 text-destructive ring-destructive/30"
+                    : riskScore >= 45
+                      ? "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900"
+                      : "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900"
+                }`}
+              >
+                {riskScore}/100
+              </span>
+            )}
+          </div>
+          {riskReasons.length > 0 && (
+            <ul className="mt-1.5 space-y-0.5 text-xs text-foreground">
+              {riskReasons.map((r, i) => (
+                <li key={i} className="flex gap-1.5">
+                  <span className="text-muted-foreground">•</span>
+                  <span>{r}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {showReject && (
+        <div className="mt-3 space-y-2">
+          <Label htmlFor="rejectReason" className="text-xs">
+            Reason (optional — shown to the customer)
+          </Label>
+          <Textarea
+            id="rejectReason"
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. New address doesn't match the on-file holder name."
+          />
+        </div>
+      )}
+
+      <div className="mt-3 flex justify-end gap-2">
+        {showReject ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowReject(false);
+                setReason("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={reject}
+              disabled={busy}
+            >
+              {busy && <Loader2 className="animate-spin" />}
+              <X className="h-3.5 w-3.5" /> Reject change
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowReject(true)}
+            >
+              <X className="h-3.5 w-3.5" /> Reject…
+            </Button>
+            <Button
+              type="button"
+              variant="success"
+              size="sm"
+              onClick={approve}
+              disabled={busy}
+            >
+              {busy && <Loader2 className="animate-spin" />}
+              <Check className="h-3.5 w-3.5" /> Approve change
+            </Button>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -668,6 +919,18 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
       </DialogHeader>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+        {profile.pendingWithdrawalAddress && (
+          <AdminPendingAddressBanner
+            profileId={profile.id}
+            current={profile.withdrawalAddress}
+            pending={profile.pendingWithdrawalAddress}
+            requestedAt={profile.pendingWithdrawalRequestedAt}
+            riskScore={profile.pendingAddressRiskScore}
+            riskReasons={profile.pendingAddressRiskReasons}
+            onClose={onClose}
+          />
+        )}
+
         <section>
           <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <UserIcon className="h-3.5 w-3.5" /> Customer

@@ -40,6 +40,7 @@ export default async function AdminTransactionsPage({
           },
         },
       },
+      // Risk fields auto-included by the model spread.
       take: 200,
     }),
     prisma.transaction.groupBy({

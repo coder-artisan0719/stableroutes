@@ -14,6 +14,7 @@ import {
   sendAdminWithdrawalChangeEmail,
 } from "@/lib/email";
 import { createAdminNotification } from "@/lib/notifications";
+import { scoreAddressChangeAnomaly } from "@/lib/ai-scoring";
 import {
   buildOtpAuthUrl,
   buildQrDataUrl,
@@ -72,10 +73,12 @@ export async function createProfile(input: unknown) {
 }
 
 /**
- * The only profile edit a customer can make: changing the USDC withdrawal
- * address. The change is applied, the profile is moved back to PENDING, and
- * admins are notified (by email — reliable — and the in-app bell). An admin
- * must re-approve before the profile is active again.
+ * The only profile edit a customer can make: requesting a new USDC withdrawal
+ * address. The request is **staged** on `pendingWithdrawalAddress` and only
+ * promoted to the live `withdrawalAddress` once an admin approves it. Until
+ * then, settlements continue routing to the previously-approved address.
+ * The customer can cancel a pending request by passing the existing live
+ * address (handled by the "already current" check below).
  */
 export async function updateWithdrawalAddress(
   profileId: string,
@@ -105,17 +108,106 @@ export async function updateWithdrawalAddress(
       error: "That is already the withdrawal address on this profile.",
     };
   }
+  if (next === existing.pendingWithdrawalAddress) {
+    return {
+      ok: false as const,
+      error: "That address is already awaiting admin approval on this profile.",
+    };
+  }
 
-  await prisma.customerProfile.update({
-    where: { id: profileId },
-    data: {
-      withdrawalAddress: next,
-      status: "PENDING",
-      approvedAt: null,
-      approvedById: null,
-      ...(existing.status === "REJECTED" ? { notes: null } : {}),
-    },
-  });
+  // PENDING profiles (never approved yet) can edit the address in place —
+  // there is no approved value to protect. APPROVED / REJECTED profiles must
+  // route through admin review via the pending column.
+  if (existing.status === "PENDING") {
+    await prisma.customerProfile.update({
+      where: { id: profileId },
+      data: {
+        withdrawalAddress: next,
+        pendingWithdrawalAddress: null,
+        pendingWithdrawalRequestedAt: null,
+      },
+    });
+  } else {
+    await prisma.customerProfile.update({
+      where: { id: profileId },
+      data: {
+        pendingWithdrawalAddress: next,
+        pendingWithdrawalRequestedAt: new Date(),
+        // Clear any prior anomaly score so the admin doesn't see stale signals
+        // while the next score is being generated in the background.
+        pendingAddressRiskScore: null,
+        pendingAddressRiskReasons: [],
+      },
+    });
+
+    // Score the change anomaly in the background — like risk scoring on
+    // transactions, this is advisory and never blocks the customer action.
+    void (async () => {
+      try {
+        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const [completedAgg, recentLogins, customer] = await Promise.all([
+          prisma.transaction.aggregate({
+            where: {
+              userId: existing.userId,
+              status: "COMPLETED",
+              completedAt: { gte: since },
+            },
+            _sum: { amountCents: true },
+            _count: true,
+          }),
+          prisma.loginEvent.findMany({
+            where: { userId: existing.userId, createdAt: { gte: since } },
+            select: { country: true },
+            distinct: ["country"],
+            take: 8,
+          }),
+          prisma.user.findUnique({
+            where: { id: existing.userId },
+            select: { createdAt: true, blocked: true },
+          }),
+        ]);
+        const accountAgeDays = customer
+          ? Math.max(
+              0,
+              Math.floor(
+                (Date.now() - customer.createdAt.getTime()) /
+                  (24 * 60 * 60 * 1000),
+              ),
+            )
+          : 0;
+
+        const verdict = await scoreAddressChangeAnomaly({
+          customerEmail: existing.user.email,
+          profileName: `${existing.firstName} ${existing.lastName}`,
+          currentAddress: existing.withdrawalAddress,
+          newAddress: next,
+          accountAgeDays,
+          recentLoginCountries: recentLogins
+            .map((l) => l.country)
+            .filter((c): c is string => Boolean(c)),
+          recentCompletedCount: completedAgg._count ?? 0,
+          recentCompletedTotalCents: completedAgg._sum.amountCents ?? 0,
+          // We don't track historical address-change count yet; this is a
+          // forward-looking signal so we report 0 until that data is captured.
+          previouslyChangedCount: 0,
+          customerBlocked: customer?.blocked ?? false,
+        });
+        if (!verdict) return;
+
+        await prisma.customerProfile.update({
+          where: { id: profileId },
+          data: {
+            pendingAddressRiskScore: verdict.score,
+            pendingAddressRiskReasons: verdict.reasons,
+          },
+        });
+        revalidatePath("/admin/profiles");
+        revalidatePath("/admin");
+      } catch (err) {
+        console.error("[anomaly] address scoring failed:", err);
+      }
+    })();
+  }
 
   void sendAdminWithdrawalChangeEmail({
     profileName: `${existing.firstName} ${existing.lastName}`,
@@ -124,13 +216,54 @@ export async function updateWithdrawalAddress(
     newAddress: next,
   });
   void createAdminNotification({
-    title: "Withdrawal address changed",
-    message: `${existing.firstName} ${existing.lastName} updated their USDC withdrawal address — the profile is back in the review queue.`,
+    title: "Withdrawal address change requested",
+    message: `${existing.firstName} ${existing.lastName} requested a USDC withdrawal-address change — review pending.`,
     url: "/admin/profiles",
   });
 
   revalidatePath("/dashboard/profiles");
   revalidatePath("/dashboard");
+  revalidatePath("/admin/profiles");
+  revalidatePath("/admin");
+  return {
+    ok: true as const,
+    pending: existing.status !== "PENDING",
+  };
+}
+
+/**
+ * Cancels a customer's own pending withdrawal-address change request before
+ * an admin has acted on it. The live `withdrawalAddress` is untouched.
+ */
+export async function cancelWithdrawalAddressChange(profileId: string) {
+  const userId = await requireUserId();
+
+  const existing = await prisma.customerProfile.findUnique({
+    where: { id: profileId },
+    select: {
+      userId: true,
+      pendingWithdrawalAddress: true,
+    },
+  });
+  if (!existing || existing.userId !== userId) {
+    return { ok: false as const, error: "Profile not found" };
+  }
+  if (!existing.pendingWithdrawalAddress) {
+    return {
+      ok: false as const,
+      error: "There is no pending address change on this profile.",
+    };
+  }
+
+  await prisma.customerProfile.update({
+    where: { id: profileId },
+    data: {
+      pendingWithdrawalAddress: null,
+      pendingWithdrawalRequestedAt: null,
+    },
+  });
+
+  revalidatePath("/dashboard/profiles");
   revalidatePath("/admin/profiles");
   revalidatePath("/admin");
   return { ok: true as const };

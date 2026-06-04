@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Ban,
@@ -9,6 +10,7 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  Search,
   Send,
   ShieldCheck,
   ShieldOff,
@@ -60,15 +62,64 @@ type Customer = {
 
 export function AdminCustomersClient({
   customers,
+  query,
 }: {
   customers: Customer[];
+  query: string;
 }) {
+  const router = useRouter();
   const [target, setTarget] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
   const [editing, setEditing] = useState<Customer | null>(null);
+  const [searchInput, setSearchInput] = useState(query);
+
+  const submitSearch = (next: string) => {
+    const trimmed = next.trim();
+    router.push(
+      trimmed.length === 0
+        ? "/admin/customers"
+        : `/admin/customers?q=${encodeURIComponent(trimmed)}`,
+    );
+  };
 
   return (
     <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitSearch(searchInput);
+        }}
+        className="relative"
+      >
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search customers — email, name, telegram…"
+          className="pl-9 pr-20"
+        />
+        {searchInput && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchInput("");
+              submitSearch("");
+            }}
+            className="absolute right-16 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+        <Button
+          type="submit"
+          size="sm"
+          variant="secondary"
+          className="absolute right-1 top-1/2 -translate-y-1/2 h-7"
+        >
+          Search
+        </Button>
+      </form>
+
       <Card>
         <CardContent className="p-0">
           {customers.length === 0 ? (
