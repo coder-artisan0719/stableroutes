@@ -49,6 +49,15 @@ const evmAddress = z
   .string()
   .regex(/^0x[a-fA-F0-9]{40}$/, "Enter a valid Base (EVM) address");
 
+// Recurring monthly pay day — 1 to 31. Stored as the day-of-month so the
+// schedule rolls forward automatically each month instead of needing the
+// customer to update a one-shot calendar date every cycle.
+const estimatedPayDay = z.coerce
+  .number()
+  .int()
+  .min(1, "Pay day must be between 1 and 31")
+  .max(31, "Pay day must be between 1 and 31");
+
 // Customer creates a profile: full name + sender + account currency +
 // withdrawal address. Bank details come later from admin at approval time.
 export const profileSchema = z.object({
@@ -59,16 +68,20 @@ export const profileSchema = z.object({
   senderName: z.string().min(1, "Sender name is required").max(120),
   accountCurrency: z.enum(["USD", "EUR", "GBP", "CAD"]),
   withdrawalAddress: evmAddress,
+  // Optional — only customers on a recurring schedule provide it.
+  estimatedPayDay: estimatedPayDay.optional(),
 });
 
 // Customer edit on a PENDING profile: same fields as create (all editable).
 export const profilePendingUpdateSchema = profileSchema.partial();
 
-// Customer edit on an APPROVED profile: only sender + withdrawal address.
-// Full name, account currency, and bank details are locked.
+// Customer edit on an APPROVED profile: only sender + withdrawal address +
+// the recurring pay-day estimate. Full name, account currency, and bank
+// details are locked.
 export const profileApprovedUpdateSchema = z.object({
   senderName: z.string().min(1, "Sender name is required").max(120).optional(),
   withdrawalAddress: evmAddress.optional(),
+  estimatedPayDay: estimatedPayDay.nullable().optional(),
 });
 
 // Bank details assigned by admin on approval.

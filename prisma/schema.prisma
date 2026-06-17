@@ -223,6 +223,10 @@ model CustomerProfile {
   accountCurrency   AccountCurrency @default(USD)
   /// USDC (Base) withdrawal address — destination of settled funds.
   withdrawalAddress String
+  /// Day of the month (1–31) the customer typically expects payment from this
+  /// profile's sender. Used by admins to plan ahead and proactively check
+  /// for incoming transfers. Null = no recurring schedule given.
+  estimatedPayDay   Int?
   /// Pending replacement address the customer has submitted but an admin
   /// has not yet approved. While non-null, the live `withdrawalAddress`
   /// continues to serve as the settlement target.

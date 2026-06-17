@@ -63,7 +63,14 @@ import {
   CurrencyFlagLabel,
   currencyMeta,
 } from "@/components/currency-flag";
-import { cn, formatDateTime, truncateMiddle } from "@/lib/utils";
+import {
+  cn,
+  formatDate,
+  formatDateTime,
+  nextDateForPayDay,
+  ordinalDay,
+  truncateMiddle,
+} from "@/lib/utils";
 import { bankDetailsSchema, type BankDetailsInput } from "@/lib/validators";
 import {
   adminDeleteProfile,
@@ -548,6 +555,7 @@ function ProfilesTable({
               <TableHead>Sender</TableHead>
               <TableHead>Withdrawal</TableHead>
               <TableHead>Bank</TableHead>
+              <TableHead>Next pay</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Submitted</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -593,6 +601,9 @@ function ProfilesTable({
                   )}
                 </TableCell>
                 <TableCell>
+                  <NextPayCell day={p.estimatedPayDay} />
+                </TableCell>
+                <TableCell>
                   <ProfileStatusBadge
                     status={p.status}
                     pendingKind={p.accountNumber ? "update" : "new"}
@@ -626,6 +637,42 @@ function ProfilesTable({
  * bank name in admin tables (e.g. `••1234`). Renders nothing when the profile
  * doesn't yet have an account assigned.
  */
+/**
+ * Compact "next expected payment" cell driven by the customer-provided
+ * day-of-month. Highlights the day in amber when it lands within 3 days
+ * so the admin can spot upcoming windows at a glance, and renders a
+ * quiet dash when no schedule was provided.
+ */
+function NextPayCell({ day }: { day: number | null }) {
+  if (day == null) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const next = nextDateForPayDay(day);
+  const days = Math.ceil(
+    (next.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+  );
+  const soon = days <= 3;
+  return (
+    <div className="text-xs">
+      <div className="font-medium">
+        {ordinalDay(day)}{" "}
+        <span className="font-normal text-muted-foreground">of month</span>
+      </div>
+      <div
+        className={`mt-0.5 ${soon ? "font-semibold text-warning" : "text-muted-foreground"}`}
+        title={`Next: ${formatDate(next)}`}
+      >
+        next {formatDate(next)}
+        {soon && days >= 0 && (
+          <span className="ml-1">
+            (in {days} day{days === 1 ? "" : "s"})
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MaskedAccountLine({ accountNumber }: { accountNumber: string | null }) {
   if (!accountNumber) return null;
   // The schema allows digits + dashes; strip dashes so the last four are always
@@ -970,6 +1017,16 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
               value={profile.withdrawalAddress}
               mono
               onCopy={() => copy(profile.withdrawalAddress, "Address")}
+            />
+            <Detail
+              label="Estimated pay day"
+              value={
+                profile.estimatedPayDay != null
+                  ? `${ordinalDay(profile.estimatedPayDay)} of each month · next ${formatDate(
+                      nextDateForPayDay(profile.estimatedPayDay),
+                    )}`
+                  : "—"
+              }
             />
           </dl>
         </section>

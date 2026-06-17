@@ -73,6 +73,8 @@ import {
   formatDate,
   formatDateTime,
   formatUSD,
+  nextDateForPayDay,
+  ordinalDay,
   truncateMiddle,
 } from "@/lib/utils";
 import {
@@ -822,6 +824,16 @@ function ProfileViewDialog({
               mono
               onCopy={() => copy(profile.withdrawalAddress, "Address")}
             />
+            <Detail
+              label="Estimated pay day"
+              value={
+                profile.estimatedPayDay != null
+                  ? `${ordinalDay(profile.estimatedPayDay)} of each month · next ${formatDate(
+                      nextDateForPayDay(profile.estimatedPayDay),
+                    )}`
+                  : "Not set"
+              }
+            />
           </dl>
         </section>
 
@@ -925,16 +937,22 @@ function ProfileDialog({ onDone }: { onDone: () => void }) {
   });
 
   return (
-    <DialogContent>
-      <DialogHeader>
+    <DialogContent className="flex max-h-[85vh] max-w-md flex-col gap-0 p-0">
+      <DialogHeader className="border-b px-6 py-4">
         <DialogTitle>New profile</DialogTitle>
         <DialogDescription>
           Your profile will be reviewed by our team and approved before
           activation.
         </DialogDescription>
       </DialogHeader>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <div className="space-y-4">
+      {/*
+        Flex column so the field area can shrink with the viewport while the
+        header above and footer below stay pinned. The scrollable region is
+        the inner `<div>`; the form keeps wrapping both so submit still
+        works when the button is clicked from the sticky footer.
+      */}
+      <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
           <div className="space-y-2">
             <Label htmlFor="firstName">First name</Label>
             <Input id="firstName" {...register("firstName")} />
@@ -965,7 +983,6 @@ function ProfileDialog({ onDone }: { onDone: () => void }) {
               </p>
             )}
           </div>
-        </div>
         <div className="space-y-2">
           <Label htmlFor="senderName">Sender name</Label>
           <Input
@@ -1016,8 +1033,37 @@ function ProfileDialog({ onDone }: { onDone: () => void }) {
             </p>
           )}
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="estimatedPayDay">
+            Estimated pay day{" "}
+            <span className="text-muted-foreground">(optional)</span>
+          </Label>
+          <Input
+            id="estimatedPayDay"
+            type="number"
+            min={1}
+            max={31}
+            step={1}
+            inputMode="numeric"
+            placeholder="e.g. 5 — for the 5th of each month"
+            {...register("estimatedPayDay", {
+              setValueAs: (v) =>
+                v === "" || v == null ? undefined : Number(v),
+            })}
+          />
+          <p className="text-xs text-muted-foreground">
+            Day of the month you typically receive payment. Helps our team
+            watch for your transfer around that date.
+          </p>
+          {errors.estimatedPayDay && (
+            <p className="text-xs text-destructive">
+              {errors.estimatedPayDay.message}
+            </p>
+          )}
+        </div>
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t bg-background px-6 py-4">
           <Button type="button" variant="outline" onClick={onDone}>
             Cancel
           </Button>
