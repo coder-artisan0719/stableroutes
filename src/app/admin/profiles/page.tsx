@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guards";
 import { parsePageSize } from "@/lib/page-size";
@@ -7,6 +8,7 @@ export const metadata = { title: "Profile reviews" };
 
 const ALLOWED_STATUS = ["PENDING", "APPROVED", "REJECTED"] as const;
 const ALLOWED_VIEW = ["grid", "table"] as const;
+const ALLOWED_CURRENCY = ["ALL", "USD", "EUR", "GBP", "CAD"] as const;
 
 export default async function AdminProfilesPage({
   searchParams,
@@ -17,6 +19,7 @@ export default async function AdminProfilesPage({
     pageSize?: string;
     view?: string;
     q?: string;
+    currency?: string;
   };
 }) {
   await requireAdmin();
@@ -30,28 +33,36 @@ export default async function AdminProfilesPage({
   const pageSize = parsePageSize(searchParams.pageSize);
   const page = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
   const q = (searchParams.q ?? "").trim();
+  const rawCurrency = (searchParams.currency ?? "ALL").toUpperCase();
+  const currency = (ALLOWED_CURRENCY as readonly string[]).includes(rawCurrency)
+    ? (rawCurrency as (typeof ALLOWED_CURRENCY)[number])
+    : "ALL";
 
   // Status is the primary filter; q is an additional contains-match across
-  // name / sender / bank / withdrawal address / customer email.
-  const where = q
-    ? {
-        status,
-        OR: [
-          { firstName: { contains: q, mode: "insensitive" as const } },
-          { lastName: { contains: q, mode: "insensitive" as const } },
-          { senderName: { contains: q, mode: "insensitive" as const } },
-          { bankName: { contains: q, mode: "insensitive" as const } },
-          { withdrawalAddress: { contains: q, mode: "insensitive" as const } },
-          {
-            user: {
-              email: { contains: q, mode: "insensitive" as const },
+  // name / sender / bank / withdrawal address / customer email; currency
+  // narrows to a specific bank-account currency.
+  const where: Prisma.CustomerProfileWhereInput = {
+    status,
+    ...(currency !== "ALL" ? { accountCurrency: currency } : {}),
+    ...(q
+      ? {
+          OR: [
+            { firstName: { contains: q, mode: "insensitive" as const } },
+            { lastName: { contains: q, mode: "insensitive" as const } },
+            { senderName: { contains: q, mode: "insensitive" as const } },
+            { bankName: { contains: q, mode: "insensitive" as const } },
+            { withdrawalAddress: { contains: q, mode: "insensitive" as const } },
+            {
+              user: {
+                email: { contains: q, mode: "insensitive" as const },
+              },
             },
-          },
-        ],
-      }
-    : { status };
+          ],
+        }
+      : {}),
+  };
 
-  const [profiles, total, counts] = await Promise.all([
+  const [profiles, total, counts, currencyCounts] = await Promise.all([
     prisma.customerProfile.findMany({
       where,
       orderBy: status === "PENDING" ? { createdAt: "asc" } : { createdAt: "desc" },
@@ -61,12 +72,35 @@ export default async function AdminProfilesPage({
     }),
     prisma.customerProfile.count({ where }),
     prisma.customerProfile.groupBy({ by: ["status"], _count: true }),
+    // Currency counts respect the active status so the chips show how many
+    // profiles in *this* status are in each currency. Keeps the numbers
+    // honest when admins are toggling between Pending/Approved/Rejected.
+    prisma.customerProfile.groupBy({
+      by: ["accountCurrency"],
+      where: { status, ...(q ? { OR: where.OR } : {}) },
+      _count: true,
+    }),
   ]);
 
   const pendingCount = counts.find((c) => c.status === "PENDING")?._count ?? 0;
   const approvedCount = counts.find((c) => c.status === "APPROVED")?._count ?? 0;
   const rejectedCount = counts.find((c) => c.status === "REJECTED")?._count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const currencyCountMap = {
+    USD: 0,
+    EUR: 0,
+    GBP: 0,
+    CAD: 0,
+  } as Record<"USD" | "EUR" | "GBP" | "CAD", number>;
+  for (const c of currencyCounts) {
+    currencyCountMap[c.accountCurrency] = c._count;
+  }
+  const currencyTotal =
+    currencyCountMap.USD +
+    currencyCountMap.EUR +
+    currencyCountMap.GBP +
+    currencyCountMap.CAD;
 
   return (
     <div className="space-y-6">
@@ -94,6 +128,8 @@ export default async function AdminProfilesPage({
         pageSize={pageSize}
         total={total}
         query={q}
+        activeCurrency={currency}
+        currencyCounts={{ ALL: currencyTotal, ...currencyCountMap }}
       />
     </div>
   );

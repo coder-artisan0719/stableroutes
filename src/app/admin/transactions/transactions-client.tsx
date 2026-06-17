@@ -81,7 +81,7 @@ export type ApprovedProfile = {
   firstName: string;
   lastName: string;
   senderName: string;
-  transferMethod: "ACH" | "WIRE" | "BOTH" | null;
+  transferMethod: "ACH" | "WIRE" | "SEPA" | "BOTH" | null;
   commissionPct: number;
   userEmail: string;
   userName: string | null;
@@ -836,10 +836,13 @@ function NewPaymentDialog({
   }, [profileId, selected, senderWatch, profiles, setValue]);
 
   // Limit ACH/Wire options to what the profile's bank account supports.
+  // SEPA-only and SWIFT+SEPA profiles (EUR) are recorded against WIRE for
+  // now since the underlying transaction type only knows ACH/WIRE.
   const allowedTypes = useMemo<("ACH" | "WIRE")[]>(() => {
     if (!selected) return ["ACH", "WIRE"];
     if (selected.transferMethod === "ACH") return ["ACH"];
     if (selected.transferMethod === "WIRE") return ["WIRE"];
+    if (selected.transferMethod === "SEPA") return ["WIRE"];
     return ["ACH", "WIRE"];
   }, [selected]);
 

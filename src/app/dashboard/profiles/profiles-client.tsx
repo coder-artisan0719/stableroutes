@@ -69,12 +69,14 @@ import {
 } from "@/components/currency-flag";
 import { profileSchema, type ProfileInput } from "@/lib/validators";
 import {
+  bankFieldLabels,
   cn,
   formatDate,
   formatDateTime,
   formatUSD,
   nextDateForPayDay,
   ordinalDay,
+  transferMethodLabel,
   truncateMiddle,
 } from "@/lib/utils";
 import {
@@ -299,22 +301,23 @@ function ProfileCard({
               </p>
               {profile.transferMethod && (
                 <Badge variant="outline" className="font-mono text-[10px]">
-                  {profile.transferMethod === "BOTH"
-                    ? "ACH + Wire"
-                    : profile.transferMethod}
+                  {transferMethodLabel(
+                    profile.transferMethod,
+                    profile.accountCurrency,
+                  )}
                 </Badge>
               )}
             </div>
             <dl className="space-y-1.5 text-xs">
               <BankRow label="Bank" value={profile.bankName ?? "—"} />
               <BankRow
-                label="Account"
+                label={bankFieldLabels(profile.accountCurrency).accountLabel}
                 value={profile.accountNumber}
                 copyable
                 onCopy={() => copy(profile.accountNumber!, "Account copied")}
               />
               <BankRow
-                label="Routing"
+                label={bankFieldLabels(profile.accountCurrency).routingLabel}
                 value={profile.routingNumber ?? "—"}
                 copyable={!!profile.routingNumber}
                 onCopy={() =>
@@ -846,9 +849,10 @@ function ProfileViewDialog({
               </h3>
               {profile.transferMethod && (
                 <Badge variant="outline" className="font-mono text-[10px]">
-                  {profile.transferMethod === "BOTH"
-                    ? "ACH + Wire"
-                    : profile.transferMethod}
+                  {transferMethodLabel(
+                    profile.transferMethod,
+                    profile.accountCurrency,
+                  )}
                 </Badge>
               )}
             </div>
@@ -856,18 +860,27 @@ function ProfileViewDialog({
               <Detail label="Bank" value={profile.bankName ?? "—"} />
               <Detail label="Bank address" value={profile.bankAddress ?? "—"} />
               <Detail
-                label="Account number"
+                label={bankFieldLabels(profile.accountCurrency).accountLabel}
                 value={profile.accountNumber}
                 mono
-                onCopy={() => copy(profile.accountNumber!, "Account number")}
+                onCopy={() =>
+                  copy(
+                    profile.accountNumber!,
+                    bankFieldLabels(profile.accountCurrency).accountLabel,
+                  )
+                }
               />
               <Detail
-                label="Routing number"
+                label={bankFieldLabels(profile.accountCurrency).routingLabel}
                 value={profile.routingNumber ?? "—"}
                 mono
                 onCopy={
                   profile.routingNumber
-                    ? () => copy(profile.routingNumber!, "Routing number")
+                    ? () =>
+                        copy(
+                          profile.routingNumber!,
+                          bankFieldLabels(profile.accountCurrency).routingLabel,
+                        )
                     : undefined
                 }
               />

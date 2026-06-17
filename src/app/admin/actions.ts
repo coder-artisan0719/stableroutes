@@ -14,6 +14,7 @@ import {
   adminTransactionCreateSchema,
   adminUpdateCredentialsSchema,
   announcementSchema,
+  bankDetailsSchemaFor,
   blockCustomerSchema,
   profileApprovalSchema,
   transactionStatusSchema,
@@ -51,26 +52,47 @@ export async function setProfileStatus(input: unknown) {
     return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  const data =
-    parsed.data.status === "APPROVED"
-      ? {
-          status: "APPROVED" as const,
-          notes: parsed.data.notes,
-          approvedAt: new Date(),
-          approvedById: adminId,
-          commissionPct: parsed.data.commissionPct,
-          bankName: parsed.data.bank.bankName,
-          bankAddress: parsed.data.bank.bankAddress,
-          accountNumber: parsed.data.bank.accountNumber,
-          routingNumber: parsed.data.bank.routingNumber,
-          transferMethod: parsed.data.bank.transferMethod,
-        }
-      : {
-          status: parsed.data.status,
-          notes: parsed.data.notes,
-          approvedAt: null,
-          approvedById: null,
-        };
+  let data;
+  if (parsed.data.status === "APPROVED") {
+    // Look up the profile's stated currency so we can pick the right bank
+    // schema — USD validates routing/account, others validate IBAN + SWIFT.
+    const profile = await prisma.customerProfile.findUnique({
+      where: { id: parsed.data.id },
+      select: { accountCurrency: true },
+    });
+    if (!profile) {
+      return { ok: false as const, error: "Profile not found" };
+    }
+    const bankParsed = bankDetailsSchemaFor(profile.accountCurrency).safeParse(
+      parsed.data.bank,
+    );
+    if (!bankParsed.success) {
+      return {
+        ok: false as const,
+        error:
+          bankParsed.error.issues[0]?.message ?? "Invalid bank details",
+      };
+    }
+    data = {
+      status: "APPROVED" as const,
+      notes: parsed.data.notes,
+      approvedAt: new Date(),
+      approvedById: adminId,
+      commissionPct: parsed.data.commissionPct,
+      bankName: bankParsed.data.bankName,
+      bankAddress: bankParsed.data.bankAddress,
+      accountNumber: bankParsed.data.accountNumber,
+      routingNumber: bankParsed.data.routingNumber,
+      transferMethod: bankParsed.data.transferMethod,
+    };
+  } else {
+    data = {
+      status: parsed.data.status,
+      notes: parsed.data.notes,
+      approvedAt: null,
+      approvedById: null,
+    };
+  }
 
   const updated = await prisma.customerProfile.update({
     where: { id: parsed.data.id },

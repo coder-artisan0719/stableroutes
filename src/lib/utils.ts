@@ -64,6 +64,37 @@ function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+/**
+ * Returns the customer-facing label for the account-identifier and routing-
+ * identifier fields based on the profile's bank currency. USD accounts use
+ * the classic "Account / Routing" model; non-USD use IBAN + SWIFT/BIC.
+ */
+export function bankFieldLabels(currency: "USD" | "EUR" | "GBP" | "CAD") {
+  if (currency === "USD") {
+    return { accountLabel: "Account number", routingLabel: "Routing number" };
+  }
+  return { accountLabel: "IBAN", routingLabel: "SWIFT / BIC" };
+}
+
+/**
+ * Human-readable label for a TransferMethod value given the profile's bank
+ * currency — "WIRE" means "SWIFT" on a EUR account, but "Wire" on USD.
+ */
+export function transferMethodLabel(
+  method: "ACH" | "WIRE" | "SEPA" | "BOTH" | null | undefined,
+  currency: "USD" | "EUR" | "GBP" | "CAD",
+) {
+  if (!method) return "—";
+  if (currency === "USD") {
+    if (method === "BOTH") return "ACH + Wire";
+    return method === "ACH" ? "ACH" : "Wire";
+  }
+  // IBAN-style — WIRE here means SWIFT.
+  if (method === "BOTH") return "SWIFT + SEPA";
+  if (method === "SEPA") return "SEPA";
+  return "SWIFT";
+}
+
 /** Formats a day-of-month into an English ordinal: 1 → "1st", 22 → "22nd". */
 export function ordinalDay(day: number) {
   const d = Math.floor(day);

@@ -64,14 +64,19 @@ import {
   currencyMeta,
 } from "@/components/currency-flag";
 import {
+  bankFieldLabels,
   cn,
   formatDate,
   formatDateTime,
   nextDateForPayDay,
   ordinalDay,
+  transferMethodLabel,
   truncateMiddle,
 } from "@/lib/utils";
-import { bankDetailsSchema, type BankDetailsInput } from "@/lib/validators";
+import {
+  bankDetailsSchemaFor,
+  type BankDetailsInput,
+} from "@/lib/validators";
 import {
   adminDeleteProfile,
   approveWithdrawalAddressChange,
@@ -85,6 +90,8 @@ type ViewParam = "grid" | "table";
 
 const COMMISSION_OPTIONS = ["0", "2", "3", "4", "5", "6", "7", "8", "10"];
 
+type CurrencyFilter = "ALL" | "USD" | "EUR" | "GBP" | "CAD";
+
 export function AdminProfilesClient({
   profiles,
   active,
@@ -97,6 +104,8 @@ export function AdminProfilesClient({
   pageSize,
   total,
   query,
+  activeCurrency,
+  currencyCounts,
 }: {
   profiles: Row[];
   active: "PENDING" | "APPROVED" | "REJECTED";
@@ -109,6 +118,8 @@ export function AdminProfilesClient({
   pageSize: PageSize;
   total: number;
   query: string;
+  activeCurrency: CurrencyFilter;
+  currencyCounts: Record<CurrencyFilter, number>;
 }) {
   const router = useRouter();
   const [approving, setApproving] = useState<Row | null>(null);
@@ -127,6 +138,7 @@ export function AdminProfilesClient({
     pageSize?: PageSize;
     view?: ViewParam;
     q?: string;
+    currency?: CurrencyFilter;
   }) {
     const params = new URLSearchParams();
     const s = opts.status ?? active;
@@ -139,6 +151,8 @@ export function AdminProfilesClient({
     if (v !== "table") params.set("view", v);
     const qParam = opts.q ?? query;
     if (qParam.trim().length > 0) params.set("q", qParam.trim());
+    const cParam = opts.currency ?? activeCurrency;
+    if (cParam !== "ALL") params.set("currency", cParam);
     const qs = params.toString();
     return qs ? `/admin/profiles?${qs}` : "/admin/profiles";
   }
@@ -216,6 +230,43 @@ export function AdminProfilesClient({
         >
           Rejected <span className="ml-1 text-xs">({rejectedCount})</span>
         </Link>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Currency
+        </span>
+        {(["ALL", "USD", "EUR", "GBP", "CAD"] as const).map((c) => {
+          const isActive = activeCurrency === c;
+          const count = currencyCounts[c] ?? 0;
+          // Quietly hide non-ALL chips with zero matches unless they're the
+          // currently-selected one (so it stays visible until cleared).
+          if (c !== "ALL" && count === 0 && !isActive) return null;
+          return (
+            <Link
+              key={c}
+              href={hrefFor({ currency: c, page: 1 })}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                isActive
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              {c === "ALL" ? "All" : c}
+              {count > 0 && (
+                <span
+                  className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none ${
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-foreground"
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
+            </Link>
+          );
+        })}
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -499,15 +550,22 @@ function ProfilesGrid({
                   <>
                     <div className="my-1 border-t border-border/60" />
                     <DLRow label="Bank" value={p.bankName ?? "—"} />
-                    <DLRow label="Account" value={p.accountNumber ?? "—"} mono />
-                    <DLRow label="Routing" value={p.routingNumber ?? "—"} mono />
+                    <DLRow
+                      label={bankFieldLabels(p.accountCurrency).accountLabel}
+                      value={p.accountNumber ?? "—"}
+                      mono
+                    />
+                    <DLRow
+                      label={bankFieldLabels(p.accountCurrency).routingLabel}
+                      value={p.routingNumber ?? "—"}
+                      mono
+                    />
                     <DLRow
                       label="Accepts"
-                      value={
-                        p.transferMethod === "BOTH"
-                          ? "ACH + Wire"
-                          : (p.transferMethod ?? "—")
-                      }
+                      value={transferMethodLabel(
+                        p.transferMethod,
+                        p.accountCurrency,
+                      )}
                     />
                     <DLRow label="Commission" value={`${p.commissionPct}%`} />
                   </>
@@ -1040,9 +1098,10 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
               </h3>
               {profile.transferMethod && (
                 <Badge variant="outline" className="font-mono text-[10px]">
-                  {profile.transferMethod === "BOTH"
-                    ? "ACH + Wire"
-                    : profile.transferMethod}
+                  {transferMethodLabel(
+                    profile.transferMethod,
+                    profile.accountCurrency,
+                  )}
                 </Badge>
               )}
             </div>
@@ -1050,18 +1109,27 @@ function ViewDialog({ profile, onClose }: { profile: Row; onClose: () => void })
               <Detail label="Bank" value={profile.bankName ?? "—"} />
               <Detail label="Bank address" value={profile.bankAddress ?? "—"} />
               <Detail
-                label="Account number"
+                label={bankFieldLabels(profile.accountCurrency).accountLabel}
                 value={profile.accountNumber}
                 mono
-                onCopy={() => copy(profile.accountNumber!, "Account number")}
+                onCopy={() =>
+                  copy(
+                    profile.accountNumber!,
+                    bankFieldLabels(profile.accountCurrency).accountLabel,
+                  )
+                }
               />
               <Detail
-                label="Routing number"
+                label={bankFieldLabels(profile.accountCurrency).routingLabel}
                 value={profile.routingNumber ?? "—"}
                 mono
                 onCopy={
                   profile.routingNumber
-                    ? () => copy(profile.routingNumber!, "Routing number")
+                    ? () =>
+                        copy(
+                          profile.routingNumber!,
+                          bankFieldLabels(profile.accountCurrency).routingLabel,
+                        )
                     : undefined
                 }
               />
@@ -1127,17 +1195,26 @@ function ApproveDialog({
     watch,
     formState: { errors },
   } = useForm<BankDetailsInput>({
-    resolver: zodResolver(bankDetailsSchema),
+    // Schema flips based on the customer's chosen account currency. USD
+    // validates routing/account; non-USD validates IBAN + SWIFT/BIC.
+    resolver: zodResolver(bankDetailsSchemaFor(profile.accountCurrency)),
     defaultValues: {
       bankName: profile.bankName ?? "",
       bankAddress: profile.bankAddress ?? "",
       accountNumber: profile.accountNumber ?? "",
       routingNumber: profile.routingNumber ?? "",
-      transferMethod: profile.transferMethod ?? "BOTH",
-    },
+      transferMethod:
+        profile.transferMethod ??
+        (profile.accountCurrency === "USD" ? "BOTH" : "WIRE"),
+    } as BankDetailsInput,
   });
 
   const transferMethod = watch("transferMethod");
+  const isIban = profile.accountCurrency !== "USD";
+  const accountLabel = isIban ? "IBAN" : "Account number";
+  const routingLabel = isIban ? "SWIFT / BIC" : "Routing number (9 digits)";
+  const accountPlaceholder = isIban ? "DE89370400440532013000" : "0000000000";
+  const routingPlaceholder = isIban ? "DEUTDEFF" : "110000000";
 
   const onSubmit = handleSubmit((bank) => {
     startTransition(async () => {
@@ -1217,11 +1294,11 @@ function ApproveDialog({
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="accountNumber">Account number</Label>
+            <Label htmlFor="accountNumber">{accountLabel}</Label>
             <Input
               id="accountNumber"
               className="font-mono"
-              placeholder="0000000000"
+              placeholder={accountPlaceholder}
               {...register("accountNumber")}
             />
             {errors.accountNumber && (
@@ -1231,11 +1308,11 @@ function ApproveDialog({
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="routingNumber">Routing number (9 digits)</Label>
+            <Label htmlFor="routingNumber">{routingLabel}</Label>
             <Input
               id="routingNumber"
               className="font-mono"
-              placeholder="110000000"
+              placeholder={routingPlaceholder}
               {...register("routingNumber")}
             />
             {errors.routingNumber && (
@@ -1258,9 +1335,19 @@ function ApproveDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ACH">ACH only</SelectItem>
-                <SelectItem value="WIRE">Wire only</SelectItem>
-                <SelectItem value="BOTH">ACH and Wire</SelectItem>
+                {isIban ? (
+                  <>
+                    <SelectItem value="WIRE">SWIFT only</SelectItem>
+                    <SelectItem value="SEPA">SEPA only</SelectItem>
+                    <SelectItem value="BOTH">SWIFT and SEPA</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="ACH">ACH only</SelectItem>
+                    <SelectItem value="WIRE">Wire only</SelectItem>
+                    <SelectItem value="BOTH">ACH and Wire</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
             {errors.transferMethod && (

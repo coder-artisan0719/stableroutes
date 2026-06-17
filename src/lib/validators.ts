@@ -84,22 +84,80 @@ export const profileApprovedUpdateSchema = z.object({
   estimatedPayDay: estimatedPayDay.nullable().optional(),
 });
 
-// Bank details assigned by admin on approval.
-export const bankDetailsSchema = z.object({
+// Bank details assigned by admin on approval. USD accounts use the classic
+// ABA routing + digit account number model; EUR/GBP/CAD use IBAN + SWIFT/BIC.
+// The same database columns hold both — only validation and labels change.
+
+const bankBaseSchema = z.object({
   bankName: z.string().min(1, "Bank name is required").max(120),
   bankAddress: z.string().min(1, "Bank address is required").max(240),
+});
+
+// USD: domestic ABA routing (9 digits) + numeric account number.
+export const bankDetailsUsdSchema = bankBaseSchema.extend({
   accountNumber: z
     .string()
+    .trim()
     .min(4, "Account number is too short")
     .max(34)
     .regex(/^[0-9-]+$/, "Use digits only (dashes allowed)"),
   routingNumber: z
     .string()
+    .trim()
     .regex(/^\d{9}$/, "Routing number must be exactly 9 digits"),
   transferMethod: z.enum(["ACH", "WIRE", "BOTH"]),
 });
 
-export type BankDetailsInput = z.infer<typeof bankDetailsSchema>;
+// IBAN-style (EUR + others): IBAN as the account identifier + SWIFT/BIC as
+// the routing identifier. IBANs start with a 2-letter country code, then 2
+// check digits, then 11–30 alphanumeric BBAN chars (15–34 total). SWIFT/BIC
+// is 8 or 11 characters: 6 letters (bank+country) + 2 alphanumeric (location)
+// optionally + 3 alphanumeric (branch).
+export const bankDetailsIbanSchema = bankBaseSchema.extend({
+  accountNumber: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\s+/g, "").toUpperCase())
+    .pipe(
+      z
+        .string()
+        .min(15, "IBAN is too short")
+        .max(34, "IBAN is too long")
+        .regex(
+          /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/,
+          "Enter a valid IBAN (e.g. DE89370400440532013000)",
+        ),
+    ),
+  routingNumber: z
+    .string()
+    .trim()
+    .transform((s) => s.replace(/\s+/g, "").toUpperCase())
+    .pipe(
+      z
+        .string()
+        .regex(
+          /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/,
+          "Enter a valid SWIFT/BIC (8 or 11 characters)",
+        ),
+    ),
+  // Non-USD profiles use IBAN. WIRE here = SWIFT (international wire),
+  // SEPA = Eurozone Single Euro Payments Area, BOTH = SWIFT + SEPA.
+  // ACH is never valid for IBAN-style accounts.
+  transferMethod: z.enum(["WIRE", "SEPA", "BOTH"]),
+});
+
+/**
+ * Returns the right schema for a profile's stated bank currency. USD keeps
+ * the classic routing/account number rules; EUR (and other non-USD codes)
+ * use IBAN + SWIFT/BIC.
+ */
+export function bankDetailsSchemaFor(currency: "USD" | "EUR" | "GBP" | "CAD") {
+  return currency === "USD" ? bankDetailsUsdSchema : bankDetailsIbanSchema;
+}
+
+export type BankDetailsUsdInput = z.infer<typeof bankDetailsUsdSchema>;
+export type BankDetailsIbanInput = z.infer<typeof bankDetailsIbanSchema>;
+export type BankDetailsInput = BankDetailsUsdInput | BankDetailsIbanInput;
 
 export const transactionCreateSchema = z.object({
   profileId: z.string().min(1),
@@ -188,7 +246,9 @@ export const transactionStatusSchema = z.object({
   txHash: evmTxHash.optional(),
 });
 
-// Admin moves a profile to APPROVED → bank details required.
+// Admin moves a profile to APPROVED → bank details required (per-currency
+// validation happens server-side in setProfileStatus, where the profile's
+// accountCurrency is known and the right schema can be picked).
 // Admin moves a profile to PENDING or REJECTED → notes only (REJECTED notes
 // double as the reason shown to the customer).
 export const profileApprovalSchema = z.discriminatedUnion("status", [
@@ -197,7 +257,9 @@ export const profileApprovalSchema = z.discriminatedUnion("status", [
     id: z.string().min(1),
     notes: z.string().max(500).optional(),
     commissionPct: z.number().int().min(0).max(100),
-    bank: bankDetailsSchema,
+    // Loose passthrough — the action looks up the profile's currency and
+    // re-validates with bankDetailsSchemaFor(currency).
+    bank: z.unknown(),
   }),
   z.object({
     status: z.literal("PENDING"),

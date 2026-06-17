@@ -40,10 +40,15 @@ enum TransactionType {
   WIRE
 }
 
-/// Which methods the bank account assigned to a profile accepts.
+/// Which methods the bank account assigned to a profile accepts. Meaning of
+/// each value depends on the profile's accountCurrency:
+///   - USD: ACH (domestic) / WIRE (international) / BOTH (ACH + WIRE)
+///   - EUR: WIRE (= SWIFT international) / SEPA (Eurozone) / BOTH (SWIFT + SEPA)
+///   - GBP/CAD: WIRE (international) / BOTH (variant)
 enum TransferMethod {
   ACH
   WIRE
+  SEPA
   BOTH
 }
 
